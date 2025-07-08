@@ -1,6 +1,6 @@
 [package]
 name = "spider_chrome"
-version = "2.37.124"
+version = "2.37.125"
 rust-version = "1.70"
 authors = ["j-mendez <jeff@spider.cloud>"]
 edition = "2021"
@@ -9,7 +9,7 @@ readme = "README.md"
 homepage = "https://github.com/spider-rs/spider_chrome"
 repository = "https://github.com/spider-rs/spider_chrome"
 description = "The chrome devtools protocol automation library for Rust"
-keywords = ["chrome", "chromedriver", "puppeteer", "automation"]
+keywords = ["chrome", "cdp", "puppeteer", "automation"]
 categories = ["web-programming", "api-bindings", "development-tools::testing"]
 
 [lib]
@@ -56,7 +56,7 @@ spider_chromiumoxide_fetcher = { path = "fetcher", version = "0.7", default-feat
 [dependencies.spider_fingerprint]
 version = "2"
 default-features = false
-features = ["serde"]
+features = ["serde", "headers"]
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
@@ -88,6 +88,7 @@ default-tls = ["reqwest/default-tls"]
 rust-tls = ["reqwest/rustls-tls"]
 serde0 = ["spider_chromiumoxide_cdp/serde0"]
 auto-detect-executable = ["dep:which"]
+dynamic-versions = ["spider_fingerprint/dynamic-versions"]
 
 # Temporary features until cargo weak dependencies bug is fixed
 # See https://github.com/rust-lang/cargo/issues/10801
