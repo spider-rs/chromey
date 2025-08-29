@@ -944,6 +944,47 @@ impl Page {
         Ok(self)
     }
 
+    /// Performs keyboard typing.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use chromiumoxide::page::Page;
+    /// # use chromiumoxide::error::Result;
+    /// # async fn demo(page: Page, point: Point) -> Result<()> {
+    ///     let html = page.type_str("abc").await?.content();
+    ///     # Ok(())
+    /// # }
+    /// ```
+    pub async fn type_str(
+        &self,
+        input: impl AsRef<str>,
+    ) -> Result<&Self> {
+        self.inner.type_str(input).await?;
+        Ok(self)
+    }
+
+    /// Performs keyboard typing with the modifier: Alt=1, Ctrl=2, Meta/Command=4, Shift=8\n(default: 0).
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use chromiumoxide::page::Page;
+    /// # use chromiumoxide::error::Result;
+    /// # async fn demo(page: Page, point: Point) -> Result<()> {
+    ///     let html = page.type_str_with_modifier("abc", Some(1)).await?.content();
+    ///     # Ok(())
+    /// # }
+    /// ```
+    pub async fn type_str_with_modifier(
+        &self,
+        input: impl AsRef<str>,
+        modifiers: Option<i64>,
+    ) -> Result<&Self> {
+        self.inner.type_str_with_modifier(input, modifiers).await?;
+        Ok(self)
+    }
+
     /// Performs a click-and-drag mouse event from a starting point to a destination.
     ///
     /// This scrolls both points into view and dispatches a sequence of `DispatchMouseEventParams`
