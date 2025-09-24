@@ -31,8 +31,8 @@ use chromiumoxide_cdp::cdp::browser_protocol::storage::{
     ClearCookiesParams, GetCookiesParams, SetCookiesParams,
 };
 use chromiumoxide_cdp::cdp::browser_protocol::target::{
-    CreateBrowserContextParams, CreateTargetParams, DisposeBrowserContextParams, TargetId,
-    TargetInfo,
+    CreateBrowserContextParams, CreateTargetParams, DisposeBrowserContextParams,
+    GetBrowserContextsParams, GetBrowserContextsReturns, TargetId, TargetInfo,
 };
 use chromiumoxide_cdp::cdp::{CdpEventMessage, IntoEventKind};
 use chromiumoxide_types::*;
@@ -530,6 +530,15 @@ impl Browser {
     ) -> Result<BrowserContextId> {
         let response = self.execute(params).await?;
         Ok(response.result.browser_context_id)
+    }
+
+    /// Returns all browser contexts created with Target.createBrowserContext method.
+    pub async fn get_browser_contexts(
+        &mut self,
+        params: GetBrowserContextsParams,
+    ) -> Result<GetBrowserContextsReturns> {
+        let response = self.execute(params).await?;
+        Ok(response.result)
     }
 
     /// Send a new empty browser context.

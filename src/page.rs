@@ -1,6 +1,9 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use chromiumoxide_cdp::cdp::browser_protocol::accessibility::{
+    GetFullAxTreeReturns, GetPartialAxTreeReturns,
+};
 use chromiumoxide_cdp::cdp::browser_protocol::emulation::{
     MediaFeature, SetDeviceMetricsOverrideParams, SetEmulatedMediaParams,
     SetGeolocationOverrideParams, SetHardwareConcurrencyOverrideParams, SetLocaleOverrideParams,
@@ -956,10 +959,7 @@ impl Page {
     ///     # Ok(())
     /// # }
     /// ```
-    pub async fn type_str(
-        &self,
-        input: impl AsRef<str>,
-    ) -> Result<&Self> {
+    pub async fn type_str(&self, input: impl AsRef<str>) -> Result<&Self> {
         self.inner.type_str(input).await?;
         Ok(self)
     }
@@ -1119,6 +1119,49 @@ impl Page {
             .drag(drag_type, point, drag_data, modifiers)
             .await?;
         Ok(self)
+    }
+    /// Fetches the entire accessibility tree for the root Document
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use chromiumoxide::page::Page;
+    /// # use chromiumoxide::error::Result;
+    /// # async fn demo_get_full_ax_tree(page: Page, depth: Option<i64>, frame_id: Option<FrameId>) -> Result<()> {
+    ///     let tree = page.get_full_ax_tree(None, None).await;
+    ///     # Ok(())
+    /// # }
+    /// ```
+    pub async fn get_full_ax_tree(
+        &self,
+        depth: Option<i64>,
+        frame_id: Option<FrameId>,
+    ) -> Result<GetFullAxTreeReturns> {
+        self.inner.get_full_ax_tree(depth, frame_id).await
+    }
+
+    /// Fetches the partial accessibility tree for the root Document
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use chromiumoxide::page::Page;
+    /// # use chromiumoxide::error::Result;
+    /// # async fn demo_get_partial_ax_tree(page: Page, node_id: Option<chromiumoxide_cdp::cdp::browser_protocol::dom::NodeId>, backend_node_id: Option<BackendNodeId>, object_id: Option<chromiumoxide_cdp::cdp::js_protocol::runtime::RemoteObjectId>, fetch_relatives: Option<bool>,) -> Result<()> {
+    ///     let tree = page.get_partial_ax_tree(node_id, backend_node_id, object_id, fetch_relatives).await;
+    ///     # Ok(())
+    /// # }
+    /// ```
+    pub async fn get_partial_ax_tree(
+        &self,
+        node_id: Option<chromiumoxide_cdp::cdp::browser_protocol::dom::NodeId>,
+        backend_node_id: Option<BackendNodeId>,
+        object_id: Option<chromiumoxide_cdp::cdp::js_protocol::runtime::RemoteObjectId>,
+        fetch_relatives: Option<bool>,
+    ) -> Result<GetPartialAxTreeReturns> {
+        self.inner
+            .get_partial_ax_tree(node_id, backend_node_id, object_id, fetch_relatives)
+            .await
     }
 
     /// Dispatches a `mouseWheel` event and moves the mouse to the position of

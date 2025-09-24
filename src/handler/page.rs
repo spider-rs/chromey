@@ -1,5 +1,9 @@
 use std::sync::Arc;
 
+use chromiumoxide_cdp::cdp::browser_protocol::accessibility::{
+    GetFullAxTreeParamsBuilder, GetFullAxTreeReturns, GetPartialAxTreeParamsBuilder,
+    GetPartialAxTreeReturns,
+};
 use futures::channel::mpsc::{channel, Receiver, Sender};
 use futures::channel::oneshot::channel as oneshot_channel;
 use futures::stream::Fuse;
@@ -382,6 +386,58 @@ impl PageInner {
             self._press_key(c, None).await?;
         }
         Ok(self)
+    }
+
+    /// Fetches the entire accessibility tree for the root Document
+    pub async fn get_full_ax_tree(
+        &self,
+        depth: Option<i64>,
+        frame_id: Option<FrameId>,
+    ) -> Result<GetFullAxTreeReturns> {
+        let mut builder = GetFullAxTreeParamsBuilder::default();
+
+        if let Some(depth) = depth {
+            builder = builder.depth(depth);
+        }
+
+        if let Some(frame_id) = frame_id {
+            builder = builder.frame_id(frame_id);
+        }
+
+        let resp = self.execute(builder.build()).await?;
+
+        Ok(resp.result)
+    }
+
+    /// Fetches the accessibility node and partial accessibility tree for this DOM node, if it exists.
+    pub async fn get_partial_ax_tree(
+        &self,
+        node_id: Option<chromiumoxide_cdp::cdp::browser_protocol::dom::NodeId>,
+        backend_node_id: Option<BackendNodeId>,
+        object_id: Option<RemoteObjectId>,
+        fetch_relatives: Option<bool>,
+    ) -> Result<GetPartialAxTreeReturns> {
+        let mut builder = GetPartialAxTreeParamsBuilder::default();
+
+        if let Some(node_id) = node_id {
+            builder = builder.node_id(node_id);
+        }
+
+        if let Some(backend_node_id) = backend_node_id {
+            builder = builder.backend_node_id(backend_node_id);
+        }
+
+        if let Some(object_id) = object_id {
+            builder = builder.object_id(object_id);
+        }
+
+        if let Some(fetch_relatives) = fetch_relatives {
+            builder = builder.fetch_relatives(fetch_relatives);
+        }
+
+        let resp = self.execute(builder.build()).await?;
+
+        Ok(resp.result)
     }
 
     /// This simulates pressing keys on the page.
