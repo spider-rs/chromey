@@ -108,6 +108,7 @@ pub mod fetcher {
     pub use chromiumoxide_fetcher::*;
 }
 
+/// HTTP request.
 pub type ArcHttpRequest = Option<Arc<HttpRequest>>;
 
 pub use serde;

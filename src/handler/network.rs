@@ -244,7 +244,6 @@ impl NetworkManager {
         } else {
             INIT_CHAIN.clone()
         };
-
         CommandChain::new(cmds, self.request_timeout)
     }
 

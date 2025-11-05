@@ -61,7 +61,9 @@ impl Command {
 
 #[derive(Debug)]
 pub struct Child {
+    /// Stderr.
     pub stderr: Option<ChildStderr>,
+    /// Inner child.
     pub inner: process::Child,
 }
 

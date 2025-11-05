@@ -109,7 +109,7 @@ impl<'a> DomainDatatype<'a> {
         }
     }
 
-    pub fn as_enum(&self) -> Option<&Vec<Variant>> {
+    pub fn as_enum(&self) -> Option<&Vec<Variant<'_>>> {
         match self {
             DomainDatatype::Type(ty) => {
                 if let Some(Item::Enum(ref vars)) = ty.item {

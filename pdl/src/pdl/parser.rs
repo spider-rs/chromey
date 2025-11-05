@@ -60,7 +60,7 @@ macro_rules! borrowed {
 /// Rewrite of the Python script from the Chromium source tree.
 ///
 ///  See: <https://chromium.googlesource.com/deps/inspector_protocol/+/refs/heads/master/pdl.py>
-pub fn parse_pdl(input: &str) -> Result<Protocol, Error> {
+pub fn parse_pdl(input: &str) -> Result<Protocol<'_>, Error> {
     let mut protocol = Protocol::default();
     let mut description: Option<String> = None;
     let mut version = None;

@@ -1,6 +1,6 @@
 [package]
 name = "chromey"
-version = "2.37.135"
+version = "2.37.138"
 rust-version = "1.70"
 authors = ["j-mendez <jeff@spider.cloud>"]
 edition = "2021"
@@ -75,6 +75,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "time", "macros"] }
 
 [features]
 default = ["bytes", "simd", "default-tls", "serde0", "auto-detect-executable"]
+collect_metrics = []
 stream = ["tokio-tungstenite/stream"]
 fetcher = []
 bytes = []
@@ -115,6 +116,9 @@ name = "console-logs"
 
 [[example]]
 name = "httpfuture"
+
+[[example]]
+name = "connect"
 
 [[example]]
 name = "fetcher-tokio"

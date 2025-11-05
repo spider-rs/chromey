@@ -26,10 +26,10 @@ use crate::handler::viewport::Viewport;
 use crate::handler::{PageInner, REQUEST_TIMEOUT};
 use crate::listeners::{EventListenerRequest, EventListeners};
 use crate::{page::Page, ArcHttpRequest};
-use chromiumoxide_cdp::cdp::browser_protocol::page::{FrameId, GetFrameTreeParams};
 use chromiumoxide_cdp::cdp::browser_protocol::{
     browser::BrowserContextId,
-    log as cdplog, performance,
+    log as cdplog,
+    page::{FrameId, GetFrameTreeParams},
     target::{AttachToTargetParams, SessionId, SetAutoAttachParams, TargetId, TargetInfo},
 };
 use chromiumoxide_cdp::cdp::events::CdpEvent;
@@ -70,27 +70,31 @@ lazy_static::lazy_static! {
             .auto_attach(true)
             .wait_for_debugger_on_start(true)
             .build() {
-                let enable_performance = performance::EnableParams::default();
                 let disable_log = cdplog::DisableParams::default();
+                let mut cmds =  vec![
+                    (
+                        attach.identifier(),
+                        serde_json::to_value(attach).unwrap_or_default(),
+                    ),
+                    (
+                        disable_log.identifier(),
+                        serde_json::to_value(disable_log).unwrap_or_default(),
+                    )
+                ];
 
-                vec![
-                        (
-                            attach.identifier(),
-                            serde_json::to_value(attach).unwrap_or_default(),
-                        ),
-                        (
-                            enable_performance.identifier(),
-                            serde_json::to_value(enable_performance).unwrap_or_default(),
-                        ),
-                        (
-                            disable_log.identifier(),
-                            serde_json::to_value(disable_log).unwrap_or_default(),
-                        )
-                    ]
+                // enable performance on pages.
+                if cfg!(feature = "collect_metrics") {
+                    let enable_performance = chromiumoxide_cdp::cdp::browser_protocol::performance::EnableParams::default();
+                    cmds.push((
+                        enable_performance.identifier(),
+                        serde_json::to_value(enable_performance).unwrap_or_default(),
+                    ));
+                }
+
+                cmds
             } else {
                 vec![]
             }
-
     };
 
     /// Attach to target commands
@@ -432,7 +436,6 @@ impl Target {
                                     self.network_manager.init_commands(),
                                 );
                             }
-
                             self.poll(cx, now)
                         }
                         Some(Ok((method, params))) => Some(TargetEvent::Request(Request {

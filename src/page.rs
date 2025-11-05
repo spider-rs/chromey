@@ -1136,6 +1136,7 @@ impl Page {
     /// ```no_run
     /// # use chromiumoxide::page::Page;
     /// # use chromiumoxide::error::Result;
+    /// # use chromiumoxide::layout::Point;
     /// # async fn demo(page: Page, point: Point) -> Result<()> {
     ///     let html = page.type_str("abc").await?.content();
     ///     # Ok(())
@@ -1153,6 +1154,7 @@ impl Page {
     /// ```no_run
     /// # use chromiumoxide::page::Page;
     /// # use chromiumoxide::error::Result;
+    /// # use chromiumoxide::layout::Point;
     /// # async fn demo(page: Page, point: Point) -> Result<()> {
     ///     let html = page.type_str_with_modifier("abc", Some(1)).await?.content();
     ///     # Ok(())
@@ -1309,6 +1311,7 @@ impl Page {
     /// ```no_run
     /// # use chromiumoxide::page::Page;
     /// # use chromiumoxide::error::Result;
+    /// # use chromiumoxide::cdp::browser_protocol::page::FrameId;
     /// # async fn demo_get_full_ax_tree(page: Page, depth: Option<i64>, frame_id: Option<FrameId>) -> Result<()> {
     ///     let tree = page.get_full_ax_tree(None, None).await;
     ///     # Ok(())
@@ -1329,6 +1332,7 @@ impl Page {
     /// ```no_run
     /// # use chromiumoxide::page::Page;
     /// # use chromiumoxide::error::Result;
+    /// # use chromiumoxide::cdp::browser_protocol::dom::BackendNodeId;
     /// # async fn demo_get_partial_ax_tree(page: Page, node_id: Option<chromiumoxide_cdp::cdp::browser_protocol::dom::NodeId>, backend_node_id: Option<BackendNodeId>, object_id: Option<chromiumoxide_cdp::cdp::js_protocol::runtime::RemoteObjectId>, fetch_relatives: Option<bool>,) -> Result<()> {
     ///     let tree = page.get_partial_ax_tree(node_id, backend_node_id, object_id, fetch_relatives).await;
     ///     # Ok(())
@@ -1524,6 +1528,23 @@ impl Page {
         self.wait_for_navigation().await
     }
 
+    /// Reloads given page without waiting for navigation.
+    ///
+    /// To reload ignoring cache run:
+    /// ```no_run
+    /// # use chromiumoxide::page::Page;
+    /// # use chromiumoxide::error::Result;
+    /// # use chromiumoxide_cdp::cdp::browser_protocol::page::ReloadParams;
+    /// # async fn demo(page: Page) -> Result<()> {
+    ///     page.execute(ReloadParams::builder().ignore_cache(true).build()).await?;
+    ///     # Ok(())
+    /// # }
+    /// ```
+    pub async fn reload_no_wait(&self) -> Result<&Self> {
+        self.execute(ReloadParams::default()).await?;
+        Ok(self)
+    }
+
     /// Enables ServiceWorkers. Disabled by default.
     /// See https://chromedevtools.github.io/devtools-protocol/tot/ServiceWorker#method-enable
     pub async fn enable_service_workers(&self) -> Result<&Self> {
@@ -1536,6 +1557,22 @@ impl Page {
     /// See https://chromedevtools.github.io/devtools-protocol/tot/ServiceWorker#method-enable
     pub async fn disable_service_workers(&self) -> Result<&Self> {
         self.execute(browser_protocol::service_worker::DisableParams::default())
+            .await?;
+        Ok(self)
+    }
+
+    /// Enables Performances. Disabled by default.
+    /// See https://chromedevtools.github.io/devtools-protocol/tot/Performance#method-enable
+    pub async fn enable_performance(&self) -> Result<&Self> {
+        self.execute(browser_protocol::performance::EnableParams::default())
+            .await?;
+        Ok(self)
+    }
+
+    /// Disables Performances. Disabled by default.
+    /// See https://chromedevtools.github.io/devtools-protocol/tot/Performance#method-disable
+    pub async fn disable_performance(&self) -> Result<&Self> {
+        self.execute(browser_protocol::performance::DisableParams::default())
             .await?;
         Ok(self)
     }
@@ -1576,7 +1613,7 @@ impl Page {
         Ok(self)
     }
 
-    /// Enables log domain. Enabled by default.
+    /// Enables log domain. Disabled by default.
     ///
     /// Sends the entries collected so far to the client by means of the
     /// entryAdded notification.
@@ -1641,6 +1678,22 @@ impl Page {
         Ok(self)
     }
 
+    /// Enables page domain notifications. Enabled by default.
+    /// See https://chromedevtools.github.io/devtools-protocol/tot/Page/#method-enable
+    pub async fn enable_page(&self) -> Result<&Self> {
+        self.execute(browser_protocol::page::EnableParams::default())
+            .await?;
+        Ok(self)
+    }
+
+    /// Disables page domain notifications. Disabled by default.
+    /// See https://chromedevtools.github.io/devtools-protocol/tot/Page/#method-disable
+    pub async fn disable_page(&self) -> Result<&Self> {
+        self.execute(browser_protocol::page::EnableParams::default())
+            .await?;
+        Ok(self)
+    }
+
     // Enables DOM agent
     pub async fn enable_dom(&self) -> Result<&Self> {
         self.execute(browser_protocol::dom::EnableParams::default())
@@ -1676,6 +1729,14 @@ impl Page {
     /// See https://chromedevtools.github.io/devtools-protocol/tot/Network#method-setBlockedURLs
     pub async fn set_blocked_urls(&self, urls: Vec<String>) -> Result<&Self> {
         self.execute(SetBlockedUrLsParams::new(urls)).await?;
+        Ok(self)
+    }
+
+    /// Force the page stop all navigations and pending resource fetches.
+    /// See https://chromedevtools.github.io/devtools-protocol/tot/Network#method-setBlockedURLs
+    pub async fn stop_loading(&self) -> Result<&Self> {
+        self.execute(browser_protocol::page::StopLoadingParams::default())
+            .await?;
         Ok(self)
     }
 
@@ -1835,7 +1896,7 @@ impl Page {
         }
     }
 
-    /// Retrieve current values of run-time metrics.
+    /// Retrieve current values of run-time metrics. Enable the 'collect_metrics flag to auto init 'Performance.enable'.
     pub async fn metrics(&self) -> Result<Vec<Metric>> {
         Ok(self
             .execute(GetMetricsParams::default())

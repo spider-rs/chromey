@@ -91,7 +91,7 @@ pub enum Type<'a> {
 }
 
 impl Type<'_> {
-    pub(crate) fn new(ty: &str, is_array: bool) -> Type {
+    pub(crate) fn new(ty: &str, is_array: bool) -> Type<'_> {
         if is_array {
             Type::ArrayOf(Box::new(Type::new(ty, false)))
         } else {
@@ -140,7 +140,7 @@ pub struct Variant<'a> {
 }
 
 impl<'a> Variant<'a> {
-    pub fn new(name: &str) -> Variant {
+    pub fn new(name: &str) -> Variant<'_> {
         Variant {
             description: Default::default(),
             name: Cow::Borrowed(name),

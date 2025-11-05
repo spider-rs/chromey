@@ -4,7 +4,7 @@ use chromiumoxide_cdp::cdp::browser_protocol::page::FrameId;
 #[derive(Default, Debug, Clone)]
 pub struct HttpRequest {
     /// Unique ID of the request.
-    request_id: RequestId,
+    pub request_id: RequestId,
     /// Indicates if the response came from the memory cache.
     pub from_memory_cache: bool,
     /// Reason for failure, if any.

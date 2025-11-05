@@ -10,13 +10,11 @@ This project is a fork of [chromiumoxide](https://github.com/mattsse/chromiumoxi
 ## Usage
 
 ```rust
-use futures::StreamExt;
-
 use chromiumoxide::browser::{Browser, BrowserConfig};
+use futures::StreamExt;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    
    // create a `Browser` that spawns a `chromium` process running with UI (`with_head()`, headless is default) 
    // and the handler that drives the websocket etc.
     let (mut browser, mut handler) =
