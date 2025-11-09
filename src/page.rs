@@ -1733,7 +1733,7 @@ impl Page {
     }
 
     /// Force the page stop all navigations and pending resource fetches.
-    /// See https://chromedevtools.github.io/devtools-protocol/tot/Network#method-setBlockedURLs
+    /// See https://chromedevtools.github.io/devtools-protocol/tot/Page#method-stopLoading
     pub async fn stop_loading(&self) -> Result<&Self> {
         self.execute(browser_protocol::page::StopLoadingParams::default())
             .await?;
@@ -1748,6 +1748,17 @@ impl Page {
     pub async fn block_all_urls(&self) -> Result<&Self> {
         self.execute(SetBlockedUrLsParams::new(vec!["*".into()]))
             .await?;
+        Ok(self)
+    }
+
+    /// Force the page stop all navigations and pending resource fetches for the rest of the page life.
+    /// See https://chromedevtools.github.io/devtools-protocol/tot/Network#method-setBlockedURLs
+    /// See https://chromedevtools.github.io/devtools-protocol/tot/Page#method-stopLoading
+    pub async fn force_stop_all(&self) -> Result<&Self> {
+        let _ = tokio::join!(
+            self.stop_loading(),
+            self.set_blocked_urls(vec!["*".to_string()])
+        );
         Ok(self)
     }
 
@@ -1908,6 +1919,95 @@ impl Page {
     /// Returns metrics relating to the layout of the page
     pub async fn layout_metrics(&self) -> Result<GetLayoutMetricsReturns> {
         self.inner.layout_metrics().await
+    }
+
+    /// Start a background guard that counts **wire bytes** (compressed on the network)
+    /// and force-stops the page once `max_bytes` is exceeded.
+    ///
+    /// - Uses CDP Network.dataReceived -> `encodedDataLength`
+    /// - Calls `Page.stopLoading()` when the cap is hit
+    /// - Optionally closes the tab after stopping
+    ///
+    /// Returns a JoinHandle you can `.await` or just detach.
+    pub async fn start_wire_bytes_budget_background(
+        &self,
+        max_bytes: u64,
+        close_on_exceed: Option<bool>,
+        enable_networking: Option<bool>,
+    ) -> Result<tokio::task::JoinHandle<()>> {
+        // prevent re-enabling the network - by default this should be enabled.
+        if enable_networking.unwrap_or(false) {
+            let _ = self.enable_network().await;
+        }
+
+        let close_on_exceed = close_on_exceed.unwrap_or_default();
+
+        let mut rx = self
+            .event_listener::<crate::page::browser_protocol::network::EventDataReceived>()
+            .await
+            .map_err(|e| CdpError::msg(format!("event_listener failed: {e}")))?;
+
+        let page = self.clone();
+
+        let handle = tokio::spawn(async move {
+            let mut total_bytes: u64 = 0;
+
+            while let Some(ev) = rx.next().await {
+                total_bytes = total_bytes.saturating_add(ev.encoded_data_length.max(0) as u64);
+                if total_bytes > max_bytes {
+                    let _ = page.force_stop_all().await;
+                    if close_on_exceed {
+                        let _ = page.close().await;
+                    }
+                    break;
+                }
+            }
+        });
+
+        Ok(handle)
+    }
+
+    /// Start a guard that counts **wire bytes** (compressed on the network)
+    /// and force-stops the page once `max_bytes` is exceeded.
+    ///
+    /// - Uses CDP Network.dataReceived -> `encodedDataLength`
+    /// - Calls `Page.stopLoading()` when the cap is hit
+    /// - Optionally closes the tab after stopping
+    ///
+    /// Returns a JoinHandle you can `.await` or just detach.
+    pub async fn start_wire_bytes_budget(
+        &self,
+        max_bytes: u64,
+        close_on_exceed: Option<bool>,
+        enable_networking: Option<bool>,
+    ) -> Result<()> {
+        // prevent re-enabling the network - by default this should be enabled.
+        if enable_networking.unwrap_or(false) {
+            let _ = self.enable_network().await;
+        }
+
+        let close_on_exceed = close_on_exceed.unwrap_or_default();
+        let mut rx = self
+            .event_listener::<crate::page::browser_protocol::network::EventDataReceived>()
+            .await
+            .map_err(|e| CdpError::msg(format!("event_listener failed: {e}")))?;
+
+        let page = self.clone();
+
+        let mut total_bytes: u64 = 0;
+
+        while let Some(ev) = rx.next().await {
+            total_bytes = total_bytes.saturating_add(ev.encoded_data_length.max(0) as u64);
+            if total_bytes > max_bytes {
+                let _ = page.force_stop_all().await;
+                if close_on_exceed {
+                    let _ = page.close().await;
+                }
+                break;
+            }
+        }
+
+        Ok(())
     }
 
     /// This evaluates strictly as expression.
