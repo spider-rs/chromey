@@ -456,15 +456,15 @@ impl Page {
 
     /// Navigate directly to the given URL checking the HTTP cache first.
     ///
-    /// This resolves directly after the requested URL is fully loaded.
+    /// This resolves directly after the requested URL is fully loaded. Does nothing without the 'cache' feature on.
     #[cfg(feature = "cache")]
-    pub async fn goto_with_cache(&self, params: impl Into<NavigateParams>) -> Result<&Self> {
+    pub async fn goto_with_cache(&self, params: impl Into<NavigateParams>, auth_opt: Option<&str>) -> Result<&Self> {
         use crate::cache::{get_cached_url, rewrite_base_tag};
         let navigate_params: NavigateParams = params.into();
         let mut force_navigate = true;
 
         // todo: pull in the headers from auth.
-        if let Some(source) = get_cached_url(&navigate_params.url, None).await {
+        if let Some(source) = get_cached_url(&navigate_params.url, auth_opt).await {
             let html = rewrite_base_tag(&source, &Some(&navigate_params.url)).await;
             if let Ok(frame_id) = self.mainframe().await {
                 if let Err(e) = self
@@ -501,7 +501,7 @@ impl Page {
     ///
     /// This resolves directly after the requested URL is fully loaded. Does nothing without the 'cache' feature on.
     #[cfg(not(feature = "cache"))]
-    pub async fn goto_with_cache(&self, params: impl Into<NavigateParams>) -> Result<&Self> {
+    pub async fn goto_with_cache(&self, params: impl Into<NavigateParams>, _auth_opt: Option<&str>) -> Result<&Self> {
         let res = self.execute(params.into()).await?;
 
         if let Some(err) = res.result.error_text {
