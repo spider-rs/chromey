@@ -65,6 +65,8 @@
 pub mod async_process;
 pub mod auth;
 pub mod browser;
+#[cfg(feature = "cache")]
+pub mod cache;
 pub(crate) mod cmd;
 pub mod conn;
 pub mod detection;
@@ -102,6 +104,9 @@ pub use crate::page::Page;
 /// re-export the generated cdp types
 pub use chromiumoxide_cdp::cdp;
 pub use chromiumoxide_types::{self as types, Binary, Command, Method, MethodType};
+
+#[cfg(feature = "cache")]
+use cache::CACACHE_MANAGER;
 
 #[cfg(feature = "fetcher")]
 pub mod fetcher {

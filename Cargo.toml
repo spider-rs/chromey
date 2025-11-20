@@ -1,6 +1,6 @@
 [package]
 name = "chromey"
-version = "2.37.143"
+version = "2.37.144"
 rust-version = "1.70"
 authors = ["j-mendez <jeff@spider.cloud>"]
 edition = "2021"
@@ -52,6 +52,13 @@ spider_network_blocker = "0"
 spider_chromiumoxide_types = { path = "types", version = "0.7" }
 spider_chromiumoxide_cdp = { path = "cdp", version = "0.7" }
 spider_chromiumoxide_fetcher = { path = "fetcher", version = "0.7", default-features = false, optional = true }
+http-cache-semantics = { version = "2", optional = true }
+http-cache = { version = "0.20", optional = true, default-features = false }
+http-cache-reqwest = { version = "0.15", optional = true, default-features = false }
+http-global-cache = { version = "0.1.0", optional = true, default-features = false, features = ["cache_request"] }
+lol_html = { version = "2", optional = true }
+tokio-stream =  { version = "0.1", optional = true }
+auto_encoder = { version = "0.1", optional = true }
 
 [dependencies.spider_fingerprint]
 version = "2"
@@ -90,6 +97,8 @@ rust-tls = ["reqwest/rustls-tls"]
 serde0 = ["spider_chromiumoxide_cdp/serde0"]
 auto-detect-executable = ["dep:which"]
 dynamic-versions = ["spider_fingerprint/dynamic-versions"]
+_cache = ["dep:http-global-cache", "dep:http-cache", "dep:http-cache-semantics", "dep:lol_html", "dep:tokio-stream", "dep:http-cache-reqwest", "dep:auto_encoder"]
+cache = ["_cache", "http-global-cache/cache"]
 
 # Temporary features until cargo weak dependencies bug is fixed
 # See https://github.com/rust-lang/cargo/issues/10801

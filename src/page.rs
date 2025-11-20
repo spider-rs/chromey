@@ -454,6 +454,63 @@ impl Page {
         Ok(self)
     }
 
+    /// Navigate directly to the given URL checking the HTTP cache first.
+    ///
+    /// This resolves directly after the requested URL is fully loaded.
+    #[cfg(feature = "cache")]
+    pub async fn goto_with_cache(&self, params: impl Into<NavigateParams>) -> Result<&Self> {
+        use crate::cache::{get_cached_url, rewrite_base_tag};
+        let navigate_params: NavigateParams = params.into();
+        let mut force_navigate = true;
+
+        // todo: pull in the headers from auth.
+        if let Some(source) = get_cached_url(&navigate_params.url, None).await {
+            let html = rewrite_base_tag(&source, &Some(&navigate_params.url)).await;
+            if let Ok(frame_id) = self.mainframe().await {
+                if let Err(e) = self
+                    .execute(browser_protocol::page::SetDocumentContentParams {
+                        frame_id: frame_id.unwrap_or_default(),
+                        html,
+                    })
+                    .await
+                {
+                    tracing::error!("Set Content Error({:?}) - {:?}", e, &navigate_params.url);
+                    force_navigate = false;
+                    if let crate::page::CdpError::Timeout = e {
+                        force_navigate = true;
+                    }
+                } else {
+                    tracing::info!("Found cached url - ({:?})", &navigate_params.url);
+                    force_navigate = false;
+                }
+            }
+        }
+
+        if force_navigate {
+            let res = self.execute(navigate_params).await?;
+
+            if let Some(err) = res.result.error_text {
+                return Err(CdpError::ChromeMessage(err));
+            }
+        }
+
+        Ok(self)
+    }
+
+    /// Navigate directly to the given URL.
+    ///
+    /// This resolves directly after the requested URL is fully loaded. Does nothing without the 'cache' feature on.
+    #[cfg(not(feature = "cache"))]
+    pub async fn goto_with_cache(&self, params: impl Into<NavigateParams>) -> Result<&Self> {
+        let res = self.execute(params.into()).await?;
+
+        if let Some(err) = res.result.error_text {
+            return Err(CdpError::ChromeMessage(err));
+        }
+
+        Ok(self)
+    }
+
     /// Navigate directly to the given URL.
     ///
     /// This resolves directly after the requested URL is fully loaded.
@@ -2245,7 +2302,7 @@ impl Page {
     /// # }
     /// ```
     pub async fn set_content(&self, html: impl AsRef<str>) -> Result<&Self> {
-        let mut call = CallFunctionOnParams::builder()
+        if let Ok(mut call) = CallFunctionOnParams::builder()
             .function_declaration(
                 "(html) => {
             document.open();
@@ -2259,14 +2316,13 @@ impl Page {
                     .build(),
             )
             .build()
-            .unwrap();
-
-        call.execution_context_id = self
-            .inner
-            .execution_context_for_world(None, DOMWorldKind::Secondary)
-            .await?;
-
-        self.evaluate_function(call).await?;
+        {
+            call.execution_context_id = self
+                .inner
+                .execution_context_for_world(None, DOMWorldKind::Secondary)
+                .await?;
+            self.evaluate_function(call).await?;
+        }
         // relying that document.open() will reset frame lifecycle with "init"
         // lifecycle event. @see https://crrev.com/608658
         self.wait_for_navigation().await
