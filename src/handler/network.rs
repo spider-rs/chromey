@@ -470,8 +470,8 @@ impl NetworkManager {
                     let current_url = event.request.url.as_str();
                     let javascript_resource = event.resource_type == ResourceType::Script;
                     let document_resource = event.resource_type == ResourceType::Document;
-                    let network_resource = !document_resource
-                        && crate::utils::is_network_resource(&event.resource_type);
+                    let network_resource =
+                        !document_resource && crate::utils::is_data_resource(&event.resource_type);
 
                     let skip_networking = self.block_all
                         || IGNORE_NETWORKING_RESOURCE_MAP.contains(event.resource_type.as_ref());
@@ -651,8 +651,8 @@ impl NetworkManager {
                     let current_url = event.request.url.as_str();
                     let javascript_resource = event.resource_type == ResourceType::Script;
                     let document_resource = event.resource_type == ResourceType::Document;
-                    let network_resource = !document_resource
-                        && crate::utils::is_network_resource(&event.resource_type);
+                    let network_resource =
+                        !document_resource && crate::utils::is_data_resource(&event.resource_type);
                     let mut replacer = None;
 
                     // block all of these events.

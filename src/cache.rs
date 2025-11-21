@@ -5,7 +5,7 @@ use crate::{
         network::{EnableParams, EventResponseReceived, GetResponseBodyParams, ResourceType},
     },
     page::Page,
-    utils::is_network_resource,
+    utils::is_data_resource,
 };
 use base64::{engine::general_purpose, Engine as _};
 use chromiumoxide_cdp::cdp::browser_protocol::fetch::{RequestPattern, RequestStage};
@@ -303,13 +303,16 @@ pub async fn put_hybrid_cache(
 pub async fn spawn_response_cache_listener(
     page: Page,
     auth: Option<String>,
+    cache_strategy: Option<CacheStrategy>,
 ) -> Result<JoinHandle<()>, crate::error::CdpError> {
     page.execute(EnableParams::default()).await?;
     let mut events = page.event_listener::<EventResponseReceived>().await?;
 
     let handle = tokio::spawn(async move {
         while let Some(ev) = events.next().await {
-            if let Err(err) = handle_single_response(&page, ev, auth.as_deref()).await {
+            if let Err(err) =
+                handle_single_response(&page, ev, auth.as_deref(), cache_strategy).await
+            {
                 tracing::debug!("failed to cache response: {err:?}");
             }
         }
@@ -339,12 +342,36 @@ fn headers_to_string_map(
     out
 }
 
-/// Allow the resource to be cached?
-pub fn allow_cache_response(resource_type: &ResourceType) -> bool {
-    let network_resource = is_network_resource(resource_type);
-    let media = matches!(resource_type, ResourceType::Image | ResourceType::Media);
+/// The default cache control handling.
+#[derive(Debug, Default, Clone, PartialEq, Copy)]
+pub enum CacheStrategy {
+    #[default]
+    /// General caching for data collecting.
+    Scraping,
+    /// Caching for screenshots.
+    Screenshots,
+}
 
-    !network_resource && !media
+/// Allow the resource to be cached?
+pub fn allow_cache_response(
+    resource_type: &ResourceType,
+    cache_strategy: Option<&CacheStrategy>,
+) -> bool {
+    let is_data = is_data_resource(resource_type);
+    let strategy = cache_strategy.copied().unwrap_or(CacheStrategy::Scraping);
+
+    // Treat these as “media-like” heavy assets
+    let is_media_like = matches!(
+        resource_type,
+        ResourceType::Image | ResourceType::Media | ResourceType::Font
+    );
+
+    // Only cache real network responses, and under Scraping skip media-like assets.
+    if strategy == CacheStrategy::Scraping {
+        !is_data && !is_media_like
+    } else {
+        !is_data
+    }
 }
 
 /// Handle single response from network and store it in the cache.
@@ -352,6 +379,7 @@ async fn handle_single_response(
     page: &Page,
     ev: std::sync::Arc<EventResponseReceived>,
     auth: Option<&str>,
+    cache_strategy: Option<CacheStrategy>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     if !ev.response.url.starts_with("http") {
         return Ok(());
@@ -359,7 +387,8 @@ async fn handle_single_response(
 
     let document_resource = ev.r#type == ResourceType::Document;
 
-    let eligible_for_cache = document_resource || allow_cache_response(&ev.r#type);
+    let eligible_for_cache =
+        document_resource || allow_cache_response(&ev.r#type, cache_strategy.as_ref());
 
     if !eligible_for_cache {
         return Ok(());
@@ -430,6 +459,7 @@ pub async fn spawn_fetch_cache_interceptor(
     page: Page,
     auth: Option<String>,
     policy: Option<BasicCachePolicy>,
+    cache_strategy: Option<CacheStrategy>,
 ) -> Result<JoinHandle<()>, crate::error::CdpError> {
     page.execute(crate::cdp::browser_protocol::fetch::EnableParams {
         handle_auth_requests: Some(false),
@@ -452,8 +482,14 @@ pub async fn spawn_fetch_cache_interceptor(
 
     let handle = tokio::spawn(async move {
         while let Some(ev) = events.next().await {
-            if let Err(err) =
-                handle_fetch_paused(&page, &ev, auth.as_deref(), policy.as_ref()).await
+            if let Err(err) = handle_fetch_paused(
+                &page,
+                &ev,
+                auth.as_deref(),
+                policy.as_ref(),
+                cache_strategy.as_ref(),
+            )
+            .await
             {
                 tracing::debug!("cache interceptor error: {err:?} - {:?}", ev.request.url);
             }
@@ -470,10 +506,11 @@ async fn handle_fetch_paused(
     ev: &std::sync::Arc<EventRequestPaused>,
     auth: Option<&str>,
     policy: Option<&BasicCachePolicy>,
+    cache_strategy: Option<&CacheStrategy>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let current_url = ev.request.url.as_str();
 
-    let eligible_for_cache = allow_cache_response(&ev.resource_type);
+    let eligible_for_cache = allow_cache_response(&ev.resource_type, cache_strategy.as_deref());
 
     if !eligible_for_cache || !current_url.starts_with("http") {
         let params = ContinueRequestParams::new(ev.request_id.clone());

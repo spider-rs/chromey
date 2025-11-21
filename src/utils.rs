@@ -117,8 +117,8 @@ fn skip_args(input: &mut &str) -> bool {
     open == closed
 }
 
-/// Is the resource a network event.
-pub fn is_network_resource(resource_type: &ResourceType) -> bool {
+/// Is the resource a data event.
+pub fn is_data_resource(resource_type: &ResourceType) -> bool {
     matches!(
         resource_type,
         ResourceType::Xhr | ResourceType::Fetch | ResourceType::WebSocket

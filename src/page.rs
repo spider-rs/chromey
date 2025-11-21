@@ -2307,9 +2307,13 @@ impl Page {
 
     #[cfg(feature = "cache")]
     /// Spawn a cache listener to store resources to memory. This does nothing without the 'cache' flag.
-    pub async fn spawn_cache_listener(&self, auth: Option<String>) -> Result<&Self> {
+    pub async fn spawn_cache_listener(
+        &self,
+        auth: Option<String>,
+        cache_strategy: Option<crate::cache::CacheStrategy>,
+    ) -> Result<&Self> {
         use crate::cache::spawn_response_cache_listener;
-        spawn_response_cache_listener(self.clone(), auth).await?;
+        spawn_response_cache_listener(self.clone(), auth, cache_strategy).await?;
         Ok(self)
     }
 
@@ -2319,9 +2323,10 @@ impl Page {
         &self,
         auth: Option<String>,
         policy: Option<crate::cache::BasicCachePolicy>,
+        cache_strategy: Option<crate::cache::CacheStrategy>,
     ) -> Result<&Self> {
         use crate::cache::spawn_fetch_cache_interceptor;
-        spawn_fetch_cache_interceptor(self.clone(), auth, policy).await?;
+        spawn_fetch_cache_interceptor(self.clone(), auth, policy, cache_strategy).await?;
         Ok(self)
     }
 

@@ -1,11 +1,16 @@
-// RUST_LOG=info cargo run --example http_cache --features="cache"
-use chromiumoxide::{browser::Browser, cache::BasicCachePolicy, handler::HandlerConfig};
+// RUST_LOG=debug cargo run --example http_cache --features="cache"
+use chromiumoxide::{
+    browser::Browser,
+    cache::{BasicCachePolicy, CacheStrategy},
+    handler::HandlerConfig,
+};
 use futures::StreamExt;
 use std::time::{Duration, Instant};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt::init();
+    let cache_strat = CacheStrategy::Scraping;
 
     let (browser, mut handler) = Browser::connect_with_config(
         "http://localhost:9222",
@@ -29,7 +34,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let page = browser.new_page("about:blank").await?;
 
     // setup response → cache listener.
-    page.spawn_cache_listener(None).await?;
+    page.spawn_cache_listener(None, Some(cache_strat)).await?;
 
     let test_url = "https://spider.cloud";
 
@@ -52,7 +57,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // allow allow even resources that should not be cached.
     let cache_policy = BasicCachePolicy::AllowStale;
 
-    page.spawn_cache_intercepter(None, Some(cache_policy))
+    page.spawn_cache_intercepter(None, Some(cache_policy), Some(cache_strat))
         .await?;
 
     tokio::time::sleep(Duration::from_secs(4)).await;
