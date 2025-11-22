@@ -1,3 +1,4 @@
+use crate::cache::remote::dump_to_remote_cache;
 use crate::http::{convert_headers, HttpRequestLike, HttpResponse, HttpResponseLike, HttpVersion};
 use crate::{
     cdp::browser_protocol::{
@@ -187,6 +188,7 @@ pub fn create_cache_key_raw(
 /// Get a cached url.
 pub async fn get_cached_url(target_url: &str, auth_opt: Option<&str>) -> Option<Vec<u8>> {
     let cache_url = create_cache_key_raw(target_url, None, auth_opt.as_deref());
+
     let result = tokio::time::timeout(std::time::Duration::from_millis(60), async {
         CACACHE_MANAGER.get(&cache_url).await
     })
@@ -246,55 +248,74 @@ pub async fn get_cached_url_with_metadata(
 }
 
 /// Store the page to cache to be re-used across HTTP request.
+/// Store the page to the local HTTP cache (CACACHE_MANAGER) and,
+/// optionally, dump it to the remote hybrid cache server.
+///
+/// `dump_remote == true` => local cache + remote cache
+/// `dump_remote == false` => local cache only
 pub async fn put_hybrid_cache(
     cache_key: &str,
+    cache_site: &str,
     http_response: HttpResponse,
     method: &str,
     http_request_headers: std::collections::HashMap<String, String>,
+    dump_remote: Option<&str>,
 ) {
     use http_cache_reqwest::CacheManager;
     use http_cache_semantics::CachePolicy;
 
-    match http_response.url.as_str().parse::<http::uri::Uri>() {
-        Ok(u) => {
-            let req = HttpRequestLike {
-                uri: u,
-                method: http::method::Method::from_bytes(method.as_bytes())
-                    .unwrap_or(http::method::Method::GET),
-                headers: convert_headers(&http_response.headers),
-            };
+    // We need to do everything that only borrows `http_response` *before*
+    // we move it into CACACHE_MANAGER::put.
+    if let Ok(u) = http_response.url.as_str().parse::<http::uri::Uri>() {
+        let req = HttpRequestLike {
+            uri: u,
+            method: http::method::Method::from_bytes(method.as_bytes())
+                .unwrap_or(http::method::Method::GET),
+            headers: convert_headers(&http_response.headers),
+        };
 
-            let res = HttpResponseLike {
-                status: StatusCode::from_u16(http_response.status)
-                    .unwrap_or(StatusCode::EXPECTATION_FAILED),
-                headers: convert_headers(&http_request_headers),
-            };
+        let res = HttpResponseLike {
+            status: StatusCode::from_u16(http_response.status)
+                .unwrap_or(StatusCode::EXPECTATION_FAILED),
+            headers: convert_headers(&http_request_headers),
+        };
 
-            let policy = CachePolicy::new(&req, &res);
+        let policy = CachePolicy::new(&req, &res);
 
-            tracing::debug!("Storing cache {:?}", http_response.url.as_str());
+        tracing::debug!("Storing cache {:?}", http_response.url.as_str());
 
-            let _ = CACACHE_MANAGER
-                .put(
-                    cache_key.into(),
-                    http_cache_reqwest::HttpResponse {
-                        url: http_response.url,
-                        body: http_response.body,
-                        headers: http_response.headers,
-                        version: match http_response.version {
-                            HttpVersion::H2 => http_cache::HttpVersion::H2,
-                            HttpVersion::Http10 => http_cache::HttpVersion::Http10,
-                            HttpVersion::H3 => http_cache::HttpVersion::H3,
-                            HttpVersion::Http09 => http_cache::HttpVersion::Http09,
-                            HttpVersion::Http11 => http_cache::HttpVersion::Http11,
-                        },
-                        status: http_response.status,
-                    },
-                    policy,
-                )
-                .await;
+        if dump_remote.is_some() {
+            dump_to_remote_cache(
+                cache_key,
+                cache_site,
+                &http_response,
+                method,
+                &http_request_headers,
+                dump_remote,
+            )
+            .await;
         }
-        _ => (),
+
+        // Finally, store in your existing local cache.
+        let _ = CACACHE_MANAGER
+            .put(
+                cache_key.into(),
+                http_cache_reqwest::HttpResponse {
+                    url: http_response.url,
+                    body: http_response.body,
+                    headers: http_response.headers,
+                    version: match http_response.version {
+                        HttpVersion::H2 => http_cache::HttpVersion::H2,
+                        HttpVersion::Http10 => http_cache::HttpVersion::Http10,
+                        HttpVersion::H3 => http_cache::HttpVersion::H3,
+                        HttpVersion::Http09 => http_cache::HttpVersion::Http09,
+                        HttpVersion::Http11 => http_cache::HttpVersion::Http11,
+                    },
+                    status: http_response.status,
+                },
+                policy,
+            )
+            .await;
     }
 }
 
@@ -302,16 +323,25 @@ pub async fn put_hybrid_cache(
 /// events for this page and stores them in your cache.
 pub async fn spawn_response_cache_listener(
     page: Page,
+    cache_site: String,
     auth: Option<String>,
     cache_strategy: Option<CacheStrategy>,
+    dump_remote: Option<String>,
 ) -> Result<JoinHandle<()>, crate::error::CdpError> {
     page.execute(EnableParams::default()).await?;
     let mut events = page.event_listener::<EventResponseReceived>().await?;
 
     let handle = tokio::spawn(async move {
         while let Some(ev) = events.next().await {
-            if let Err(err) =
-                handle_single_response(&page, ev, auth.as_deref(), cache_strategy).await
+            if let Err(err) = handle_single_response(
+                &page,
+                &cache_site,
+                ev,
+                auth.as_deref(),
+                cache_strategy,
+                dump_remote.as_deref(),
+            )
+            .await
             {
                 tracing::debug!("failed to cache response: {err:?}");
             }
@@ -377,9 +407,11 @@ pub fn allow_cache_response(
 /// Handle single response from network and store it in the cache.
 async fn handle_single_response(
     page: &Page,
+    cache_site: &str,
     ev: std::sync::Arc<EventResponseReceived>,
     auth: Option<&str>,
     cache_strategy: Option<CacheStrategy>,
+    dump_remote: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     if !ev.response.url.starts_with("http") {
         return Ok(());
@@ -438,7 +470,15 @@ async fn handle_single_response(
         };
 
         let result = tokio::time::timeout(std::time::Duration::from_millis(100), async {
-            put_hybrid_cache(&cache_key, http_response, method, req_headers).await
+            put_hybrid_cache(
+                &cache_key,
+                cache_site,
+                http_response,
+                method,
+                req_headers,
+                dump_remote,
+            )
+            .await
         })
         .await;
 

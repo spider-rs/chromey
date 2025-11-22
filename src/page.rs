@@ -550,6 +550,42 @@ impl Page {
         Ok(self)
     }
 
+    /// Navigate directly to the given URL concurrenctly checking the cache and seeding.
+    ///
+    /// This resolves directly after the requested URL is fully loaded. Does nothing without the 'cache' feature on.
+    #[cfg(feature = "cache")]
+    pub async fn goto_with_cache_fast_seed(
+        &self,
+        params: impl Into<NavigateParams>,
+        auth_opt: Option<&str>,
+        remote: Option<&str>,
+    ) -> Result<&Self> {
+        let navigate_params = params.into();
+        let target_url = navigate_params.url.clone();
+        let _ = tokio::join!(
+            self.seed_cache(&target_url, auth_opt, remote),
+            self.goto_with_cache(navigate_params, auth_opt)
+        );
+        Ok(self)
+    }
+
+    /// Navigate directly to the given URL concurrenctly checking the cache and seeding.
+    ///
+    /// This resolves directly after the requested URL is fully loaded. Does nothing without the 'cache' feature on.
+    #[cfg(feature = "cache")]
+    pub async fn goto_with_cache_seed(
+        &self,
+        params: impl Into<NavigateParams>,
+        auth_opt: Option<&str>,
+        remote: Option<&str>,
+    ) -> Result<&Self> {
+        let navigate_params = params.into();
+        self.seed_cache(&navigate_params.url, auth_opt, remote)
+            .await?;
+        self.goto_with_cache(navigate_params, auth_opt).await?;
+        Ok(self)
+    }
+
     /// Navigate directly to the given URL.
     ///
     /// This resolves directly after the requested URL is fully loaded. Does nothing without the 'cache' feature on.
@@ -2346,14 +2382,38 @@ impl Page {
     }
 
     #[cfg(feature = "cache")]
+    /// Seed the cache. This does nothing without the 'cache' flag.
+    pub async fn seed_cache(
+        &self,
+        target_url: &str,
+        auth: Option<&str>,
+        remote: Option<&str>,
+    ) -> Result<&Self> {
+        use crate::cache::remote::get_cache_site;
+        get_cache_site(&target_url, auth.as_deref(), remote.as_deref()).await;
+        Ok(self)
+    }
+
+    #[cfg(feature = "cache")]
     /// Spawn a cache listener to store resources to memory. This does nothing without the 'cache' flag.
+    /// You can pass an endpoint to `dump_remote` to store the cache to a url endpoint.
+    /// Set the value to Some("true") to use the default endpoint.
     pub async fn spawn_cache_listener(
         &self,
+        cache_site: &str,
         auth: Option<String>,
         cache_strategy: Option<crate::cache::CacheStrategy>,
+        dump_remote: Option<String>,
     ) -> Result<&Self> {
         use crate::cache::spawn_response_cache_listener;
-        spawn_response_cache_listener(self.clone(), auth, cache_strategy).await?;
+        spawn_response_cache_listener(
+            self.clone(),
+            cache_site.into(),
+            auth,
+            cache_strategy,
+            dump_remote,
+        )
+        .await?;
         Ok(self)
     }
 
