@@ -481,6 +481,28 @@ impl Page {
         Ok(self)
     }
 
+    /// Wait until the network is idle, but only up to `timeout`.
+    /// If the timeout elapses, the error is ignored and the method still returns `Ok(self)`.
+    pub async fn wait_for_network_idle_with_timeout(
+        &self,
+        timeout: std::time::Duration,
+    ) -> Result<&Self> {
+        let fut = self.inner.wait_for_network_idle();
+        let _ = tokio::time::timeout(timeout, fut).await;
+        Ok(self)
+    }
+
+    /// Wait until the network is almost idle, but only up to `timeout`.
+    /// If the timeout elapses, the error is ignored and the method still returns `Ok(self)`.
+    pub async fn wait_for_network_almost_idle_with_timeout(
+        &self,
+        timeout: std::time::Duration,
+    ) -> Result<&Self> {
+        let fut = self.inner.wait_for_network_almost_idle();
+        let _ = tokio::time::timeout(timeout, fut).await;
+        Ok(self)
+    }
+
     /// Navigate directly to the given URL checking the HTTP cache first.
     ///
     /// This resolves directly after the requested URL is fully loaded. Does nothing without the 'cache' feature on.
