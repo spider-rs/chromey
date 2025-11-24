@@ -1,6 +1,6 @@
 [package]
 name = "chromey"
-version = "2.37.157"
+version = "2.37.162"
 rust-version = "1.70"
 authors = ["j-mendez <jeff@spider.cloud>"]
 edition = "2021"
@@ -19,7 +19,7 @@ name = "chromiumoxide"
 tokio-tungstenite = "0.27"
 serde = { version = "1", features = ["derive"] }
 futures = "0.3"
-serde_json = "1"
+serde_json = { version = "1" }
 which = { version = "8", optional = true }
 thiserror = "1"
 url = "2"
@@ -59,6 +59,7 @@ http-global-cache = { version = "0.1.0", optional = true, default-features = fal
 lol_html = { version = "2", optional = true }
 tokio-stream =  { version = "0.1", optional = true }
 auto_encoder = { version = "0.1", optional = true }
+serde_stacker = { version = "0.1", optional = true }
 
 [dependencies.spider_fingerprint]
 version = "2"
@@ -99,6 +100,7 @@ auto-detect-executable = ["dep:which"]
 dynamic-versions = ["spider_fingerprint/dynamic-versions"]
 _cache = ["dep:http-global-cache", "dep:http-cache", "dep:http-cache-semantics", "dep:lol_html", "dep:tokio-stream", "dep:http-cache-reqwest", "dep:auto_encoder"]
 cache = ["_cache", "http-global-cache/cache"]
+serde_stacker = ["dep:serde_stacker", "serde_json/unbounded_depth"]
 
 # Temporary features until cargo weak dependencies bug is fixed
 # See https://github.com/rust-lang/cargo/issues/10801

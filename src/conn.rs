@@ -176,11 +176,50 @@ impl<T: EventMessage + Unpin> Stream for Connection<T> {
 /// Shared decode path for both text and binary WS frames.
 /// `raw_text_for_logging` is only provided for textual frames so we can log the original
 /// payload on parse failure if desired.
+#[cfg(not(feature = "serde_stacker"))]
 fn decode_message<T: EventMessage>(
     bytes: &[u8],
     raw_text_for_logging: Option<&str>,
 ) -> Result<Box<Message<T>>> {
-    match crate::serde_json::from_slice::<Box<Message<T>>>(bytes) {
+    match serde_json::from_slice::<Box<Message<T>>>(bytes) {
+        Ok(msg) => {
+            tracing::trace!("Received {:?}", msg);
+            Ok(msg)
+        }
+        Err(err) => {
+            if let Some(txt) = raw_text_for_logging {
+                tracing::error!(
+                    target: "chromiumoxide::conn::raw_ws::parse_errors",
+                    msg_len = txt.len(),
+                    "Failed to parse raw WS message {err}",
+                );
+            } else {
+                tracing::error!(
+                    target: "chromiumoxide::conn::raw_ws::parse_errors",
+                    "Failed to parse binary WS message {err}",
+                );
+            }
+            Err(err.into())
+        }
+    }
+}
+
+/// Shared decode path for both text and binary WS frames.
+/// `raw_text_for_logging` is only provided for textual frames so we can log the original
+/// payload on parse failure if desired.
+#[cfg(feature = "serde_stacker")]
+fn decode_message<T: EventMessage>(
+    bytes: &[u8],
+    raw_text_for_logging: Option<&str>,
+) -> Result<Box<Message<T>>> {
+    use serde::Deserialize;
+    let mut de = serde_json::Deserializer::from_slice(bytes);
+
+    de.disable_recursion_limit();
+
+    let de = serde_stacker::Deserializer::new(&mut de);
+
+    match Box::<Message<T>>::deserialize(de) {
         Ok(msg) => {
             tracing::trace!("Received {:?}", msg);
             Ok(msg)
