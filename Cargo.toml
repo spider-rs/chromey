@@ -1,6 +1,6 @@
 [package]
 name = "chromey"
-version = "2.37.162"
+version = "2.37.163"
 rust-version = "1.70"
 authors = ["j-mendez <jeff@spider.cloud>"]
 edition = "2021"
@@ -16,7 +16,7 @@ categories = ["web-programming", "api-bindings", "development-tools::testing"]
 name = "chromiumoxide"
 
 [dependencies]
-tokio-tungstenite = "0.27"
+tokio-tungstenite = "0.28"
 serde = { version = "1", features = ["derive"] }
 futures = "0.3"
 serde_json = { version = "1" }

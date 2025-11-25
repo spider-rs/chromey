@@ -164,7 +164,9 @@ impl PageInner {
         cmd.node_id = Some(node_id);
         cmd.object_id = Some(object_id);
 
-        Ok(self.execute(cmd).await?.outer_html.to_string())
+        let chromiumoxide_types::CommandResponse { result, .. } = self.execute(cmd).await?;
+
+        Ok(result.outer_html)
     }
 
     /// Activates (focuses) the target.

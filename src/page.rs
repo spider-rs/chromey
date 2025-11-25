@@ -868,10 +868,12 @@ impl Page {
         Element::new(Arc::clone(&self.inner), node_id).await
     }
 
-    /// Returns the outer HTML of the page.
-    pub async fn outer_html(&self) -> Result<String> {
+    /// Returns the outer HTML of the page full target piercing all trees.
+    pub async fn outer_html_full(&self) -> Result<String> {
         let root = self.get_document().await?;
+
         let element = Element::new(Arc::clone(&self.inner), root.node_id).await?;
+
         self.inner
             .outer_html(
                 element.remote_object_id,
@@ -879,6 +881,18 @@ impl Page {
                 element.backend_node_id,
             )
             .await
+    }
+
+    /// Returns the outer HTML of the page.
+    pub async fn outer_html(&self) -> Result<String> {
+        let root = self.get_document().await?;
+        let mut p = chromiumoxide_cdp::cdp::browser_protocol::dom::GetOuterHtmlParams::default();
+
+        p.node_id = Some(root.node_id);
+
+        let chromiumoxide_types::CommandResponse { result, .. } = self.execute(p).await?;
+
+        Ok(result.outer_html)
     }
 
     /// Return all `Element`s in the document that match the given selector
