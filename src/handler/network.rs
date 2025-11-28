@@ -206,10 +206,12 @@ pub struct NetworkManager {
     pub intercept_manager: NetworkInterceptManager,
     /// Track the amount of times the document reloaded.
     pub document_reload_tracker: u8,
-    /// The initial target domain.
+    /// The initial target domain. We want to use a new page on every navigation to prevent re-using the old domain.
     pub document_target_domain: String,
     /// The max bytes to receive.
     pub max_bytes_allowed: Option<u64>,
+    /// The cache site_key to use.
+    pub cache_site_key: Option<String>,
 }
 
 impl NetworkManager {
@@ -239,6 +241,7 @@ impl NetworkManager {
             document_reload_tracker: 0,
             document_target_domain: String::new(),
             max_bytes_allowed: None,
+            cache_site_key: None,
         }
     }
 
@@ -300,6 +303,11 @@ impl NetworkManager {
 
     pub fn disable_request_intercept(&mut self) {
         self.protocol_request_interception_enabled = true;
+    }
+
+    /// Set the cache site key.
+    pub fn set_cache_site_key(&mut self, cache_site_key: Option<String>) {
+        self.cache_site_key = cache_site_key;
     }
 
     pub fn update_protocol_cache_disabled(&mut self) {
@@ -489,6 +497,55 @@ impl NetworkManager {
         self.push_cdp_request(params);
     }
 
+    // Optional: when cache feature is OFF, keep callsites compiling if you
+    // accidentally call it (it becomes a no-op).
+    #[cfg(not(feature = "cache"))]
+    #[inline]
+    fn fulfill_request_from_cache(
+        &mut self,
+        _request_id: &chromiumoxide_cdp::cdp::browser_protocol::fetch::RequestId,
+        _body: &[u8],
+        _headers: &std::collections::HashMap<String, String>,
+        _status: i64,
+    ) {
+        // cache feature disabled
+    }
+
+    #[cfg(feature = "cache")]
+    #[inline]
+    /// Fulfill a paused Fetch request from cached bytes + header map.
+    ///
+    /// `headers` should be response headers (e.g. Content-Type, Cache-Control, etc).
+    fn fulfill_request_from_cache(
+        &mut self,
+        request_id: &chromiumoxide_cdp::cdp::browser_protocol::fetch::RequestId,
+        body: &[u8],
+        headers: &std::collections::HashMap<String, String>,
+        status: i64,
+    ) {
+        use crate::cdp::browser_protocol::fetch::HeaderEntry;
+        use crate::handler::network::fetch::FulfillRequestParams;
+        use base64::Engine;
+        let mut resp_headers = Vec::<HeaderEntry>::with_capacity(headers.len());
+        for (k, v) in headers.iter() {
+            resp_headers.push(HeaderEntry {
+                name: k.clone().into(),
+                value: v.clone().into(),
+            });
+        }
+
+        let mut params = FulfillRequestParams::new(request_id.clone(), status);
+
+        params.body = Some(
+            base64::engine::general_purpose::STANDARD
+                .encode(body)
+                .into(),
+        );
+        params.response_headers = Some(resp_headers);
+
+        self.push_cdp_request(params);
+    }
+
     #[inline]
     /// Continue the request url.
     fn continue_request_with_url(
@@ -505,6 +562,8 @@ impl NetworkManager {
         self.push_cdp_request(params);
     }
 
+    /// On fetch requesdt paused interception.
+    #[inline]
     pub fn on_fetch_request_paused(&mut self, event: &EventRequestPaused) {
         // If both interceptions are enabled, do nothing.
         if self.user_request_interception_enabled && self.protocol_request_interception_enabled {
@@ -517,8 +576,7 @@ impl NetworkManager {
                 event.resource_type,
                 event.request.url
             );
-            self.fail_request_blocked(&event.request_id);
-            return;
+            return self.fail_request_blocked(&event.request_id);
         }
 
         // If this paused request corresponds to a "request_will_be_sent", hand it off and exit.
@@ -526,13 +584,12 @@ impl NetworkManager {
             if let Some(request_will_be_sent) =
                 self.requests_will_be_sent.remove(network_id.as_ref())
             {
-                self.on_request(&request_will_be_sent, Some(event.request_id.clone().into()));
-                return;
+                return self
+                    .on_request(&request_will_be_sent, Some(event.request_id.clone().into()));
             }
         } else {
             // No network_id, just continue.
-            self.push_cdp_request(ContinueRequestParams::new(event.request_id.clone()));
-            return;
+            return self.push_cdp_request(ContinueRequestParams::new(event.request_id.clone()));
         }
 
         // From here on, we handle the full decision tree.
@@ -608,6 +665,24 @@ impl NetworkManager {
             tracing::debug!("Blocked: {:?} - {}", resource_type, current_url);
             self.fulfill_request_empty_200(&event.request_id);
         } else {
+            #[cfg(feature = "cache")]
+            {
+                if let Some(cache_site_key) = self.cache_site_key.as_deref() {
+                    if let Some((res, _cache_policy)) =
+                        crate::cache::remote::get_session_cache_item(cache_site_key, current_url)
+                    {
+                        tracing::debug!("Remote Cached: {:?} - {}", resource_type, current_url);
+                        return self.fulfill_request_from_cache(
+                            &event.request_id,
+                            &res.body,
+                            &res.headers,
+                            res.status as i64,
+                        );
+                    }
+                }
+            }
+
+            // check our frame cache for the run.
             tracing::debug!("Allowed: {:?} - {}", resource_type, current_url);
             self.continue_request_with_url(
                 &event.request_id,
@@ -619,6 +694,22 @@ impl NetworkManager {
                 !had_replacer,
             );
         }
+    }
+
+    /// Does the network manager have a target domain?
+    pub fn has_target_domain(&self) -> bool {
+        !self.document_target_domain.is_empty()
+    }
+
+    /// Set the target page url for tracking.
+    pub fn set_page_url(&mut self, page_target_url: String) {
+        self.document_target_domain = page_target_url;
+    }
+
+    /// Clear the initial target domain on every navigation.
+    pub fn clear_target_domain(&mut self) {
+        self.document_reload_tracker = 0;
+        self.document_target_domain = Default::default();
     }
 
     /// Handles:

@@ -60,6 +60,9 @@ lol_html = { version = "2", optional = true }
 tokio-stream =  { version = "0.1", optional = true }
 auto_encoder = { version = "0.1", optional = true }
 serde_stacker = { version = "0.1", optional = true }
+blake3 = { version = "1", optional = true }
+hex = { version = "0.4", optional = true }
+dashmap = { version = "6", optional = true }
 
 [dependencies.spider_fingerprint]
 version = "2"
@@ -82,7 +85,7 @@ tracing-subscriber = "0.3"
 tokio = { version = "1", features = ["rt-multi-thread", "time", "macros"] }
 
 [features]
-default = ["bytes", "simd", "default-tls", "serde0", "auto-detect-executable"]
+default = ["bytes", "simd", "default-tls", "serde0", "auto-detect-executable", "cache"]
 collect_metrics = []
 stream = ["tokio-tungstenite/stream"]
 fetcher = []
@@ -98,7 +101,18 @@ rust-tls = ["reqwest/rustls-tls"]
 serde0 = ["spider_chromiumoxide_cdp/serde0"]
 auto-detect-executable = ["dep:which"]
 dynamic-versions = ["spider_fingerprint/dynamic-versions"]
-_cache = ["dep:http-global-cache", "dep:http-cache", "dep:http-cache-semantics", "dep:lol_html", "dep:tokio-stream", "dep:http-cache-reqwest", "dep:auto_encoder"]
+_cache = [
+    "dep:http-global-cache", 
+    "dep:http-cache", 
+    "dep:http-cache-semantics", 
+    "dep:lol_html", 
+    "dep:tokio-stream", 
+    "dep:http-cache-reqwest", 
+    "dep:auto_encoder",
+    "dep:blake3",
+    "dep:hex",
+    "dep:dashmap"
+    ]
 cache = ["_cache", "http-global-cache/cache"]
 serde_stacker = ["dep:serde_stacker", "serde_json/unbounded_depth"]
 

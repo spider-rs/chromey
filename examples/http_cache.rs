@@ -3,6 +3,7 @@ use chromiumoxide::{
     browser::Browser,
     cache::{BasicCachePolicy, CacheStrategy},
     handler::HandlerConfig,
+    init_default_cache_worker,
 };
 use futures::StreamExt;
 use std::time::{Duration, Instant};
@@ -11,12 +12,13 @@ use std::time::{Duration, Instant};
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt::init();
     let cache_strat = CacheStrategy::Scraping;
+    let request_intercept = true;
 
     let (browser, mut handler) = Browser::connect_with_config(
         "http://localhost:9223",
         HandlerConfig {
             // todo: the handler configs from intercept need to move over to prevent conflicts.
-            request_intercept: false,
+            request_intercept,
             // rely only on the global memory cache.
             cache_enabled: false,
             ..Default::default()
@@ -24,20 +26,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .await?;
 
+    init_default_cache_worker().await;
+
     // Drive the CDP handler
     let handle = tokio::task::spawn(async move {
         loop {
-            let _ = handler.next().await.unwrap();
+            if let Some(Err(e)) = handler.next().await {
+                eprintln!("{:?}", e);
+            }
         }
     });
 
     let page = browser.new_page("about:blank").await?;
 
-    // setup response → cache listener.
-    page.spawn_cache_listener("spider.cloud", None, Some(cache_strat), Some("true".into()))
-        .await?;
+    let test_url = "https://spider.cloud/about";
 
-    let test_url = "https://spider.cloud";
+    // setup response → cache listener.
+    page.spawn_cache_listener(test_url, None, Some(cache_strat), Some("true".into()))
+        .await?;
 
     // ---- First run (cold) ----
     let start_first = Instant::now();
@@ -55,7 +61,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         test_url, dur_first
     );
 
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    tokio::time::sleep(Duration::from_secs(5)).await;
 
     // allow allow even resources that should not be cached.
     let cache_policy = BasicCachePolicy::AllowStale;
@@ -68,7 +74,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Attempting second navigation");
 
     let html2 = page
-        .goto_with_cache_remote(test_url, None, Some(cache_policy), Some(cache_strat), None)
+        .goto_with_cache_remote(
+            test_url,
+            None,
+            Some(cache_policy.clone()),
+            Some(cache_strat),
+            None,
+        )
         .await?
         .wait_for_navigation()
         .await?
@@ -101,14 +113,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // assert!(
-    //     dur_second * 3 / 2 < dur_first,
-    //     "Warm run was not at least 1.5x faster (first: {:?}, second: {:?})",
+    //     dur_second < dur_first,
+    //     "Warm run was not faster (first: {:?}, second: {:?})",
     //     dur_first,
     //     dur_second
     // );
 
     println!("Main size: {:?}", html.len());
     println!("Cached size: {:?}", html2.len());
+
+    let html2: String = page
+        .goto_with_cache_remote(
+            "https://example.com",
+            None,
+            Some(cache_policy),
+            Some(cache_strat),
+            None,
+        )
+        .await?
+        .wait_for_navigation()
+        .await?
+        .content()
+        .await?;
 
     handle.await?;
     Ok(())

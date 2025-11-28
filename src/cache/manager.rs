@@ -1,6 +1,5 @@
 pub use http_global_cache::CACACHE_MANAGER;
 
-use crate::cache::remote::dump_to_remote_cache;
 use crate::http::{convert_headers, HttpRequestLike, HttpResponse, HttpResponseLike, HttpVersion};
 use crate::{
     cdp::browser_protocol::{
@@ -170,20 +169,37 @@ pub fn create_cache_key_raw(
     override_method: Option<&str>,
     auth: Option<&str>,
 ) -> String {
-    if let Some(authentication) = auth {
-        format!(
-            "{}:{}:{}",
-            override_method.unwrap_or_else(|| "GET".into()),
-            uri,
-            authentication
-        )
-    } else {
-        format!(
-            "{}:{}",
-            override_method.unwrap_or_else(|| "GET".into()),
-            uri
-        )
+    let method = override_method.unwrap_or("GET");
+    match auth {
+        Some(a) => format!("{method}:{uri}:{a}"),
+        None => format!("{method}:{uri}"),
     }
+}
+
+/// Hash the key.
+fn hash_key_v1(s: &str) -> String {
+    hex::encode(blake3::hash(s.as_bytes()).as_bytes())
+}
+
+/// Site/page grouping key (used for site:{site_key}::{resource_key})
+pub fn create_site_key(target_url: &str, auth: Option<&str>, method: Option<&str>) -> String {
+    let normalized = url::Url::parse(target_url)
+        .map(|mut u| {
+            u.set_fragment(None);
+            u.to_string()
+        })
+        .unwrap_or_else(|_| target_url.to_string());
+
+    // If you want method-specific site groups, set method=Some("POST") etc.
+    // If you don't, pass None and it won't fragment.
+    let method_part = method.unwrap_or("GET"); // or "ANY" if you prefer
+
+    let raw = match auth {
+        Some(a) => format!("site|v1|m={method_part}|url={normalized}|auth={a}"),
+        None => format!("site|v1|m={method_part}|url={normalized}|auth="),
+    };
+
+    hash_key_v1(&raw)
 }
 
 /// Get a cached url.
@@ -305,15 +321,33 @@ pub async fn put_hybrid_cache(
             }
 
             if put_cache {
-                dump_to_remote_cache(
-                    cache_key,
-                    cache_site,
-                    &http_response,
-                    method,
-                    &http_request_headers,
-                    dump_remote,
-                )
-                .await;
+                let job = super::dump_remote::DumpJob {
+                    cache_key: cache_key.to_string(),
+                    cache_site: cache_site.to_string(),
+                    url: http_response.url.to_string(),
+                    method: method.to_string(),
+                    status: http_response.status,
+                    request_headers: http_request_headers.clone(),
+                    response_headers: http_response.headers.clone(),
+                    body: http_response.body.clone(),
+                    http_version: http_response.version.clone(),
+                    dump_remote: dump_remote.map(|s| s.to_string()),
+                };
+
+                if super::dump_remote::worke_inited() {
+                    if !super::dump_remote::try_enqueue(job) {
+                        tracing::debug!(
+                            "remote dump skipped (worker not initialized or queue full)"
+                        );
+                    }
+                } else {
+                    if let Err(err) = super::dump_remote::enqueue(job).await {
+                        tracing::debug!(
+                            "remote dump skipped (worker not initialized or queue full) - {:?}",
+                            err
+                        );
+                    }
+                }
             }
         }
 
@@ -325,13 +359,7 @@ pub async fn put_hybrid_cache(
                     url: http_response.url,
                     body: http_response.body,
                     headers: http_response.headers,
-                    version: match http_response.version {
-                        HttpVersion::H2 => http_cache::HttpVersion::H2,
-                        HttpVersion::Http10 => http_cache::HttpVersion::Http10,
-                        HttpVersion::H3 => http_cache::HttpVersion::H3,
-                        HttpVersion::Http09 => http_cache::HttpVersion::Http09,
-                        HttpVersion::Http11 => http_cache::HttpVersion::Http11,
-                    },
+                    version: http_response.version.into(),
                     status: http_response.status,
                 },
                 policy,
@@ -425,6 +453,19 @@ pub fn allow_cache_response(
     }
 }
 
+/// Get the site key for target url.
+pub fn site_key_for_target_url(target_url: &str, auth: Option<&str>) -> String {
+    let normalized = match url::Url::parse(target_url) {
+        Ok(mut u) => {
+            u.set_fragment(None);
+            u.to_string()
+        }
+        Err(_) => target_url.to_string(),
+    };
+    let input = format!("v1|url={}|auth={}", normalized, auth.unwrap_or(""));
+    hex::encode(blake3::hash(input.as_bytes()).as_bytes()) // 64 hex chars, path-safe
+}
+
 /// Handle single response from network and store it in the cache.
 async fn handle_single_response(
     page: &Page,
@@ -471,10 +512,7 @@ async fn handle_single_response(
         let status = ev.response.status as u16;
 
         let version = match ev.response.protocol.as_deref() {
-            Some("h2") | Some("HTTP/2") | Some("HTTP/2.0") => HttpVersion::H2,
-            Some("h3") | Some("HTTP/3") | Some("HTTP/3.0") => HttpVersion::H3,
-            Some("HTTP/1.0") => HttpVersion::Http10,
-            Some("HTTP/0.9") => HttpVersion::Http09,
+            Some(v) => v.into(),
             _ => HttpVersion::Http11,
         };
 
@@ -482,29 +520,30 @@ async fn handle_single_response(
 
         let cache_key = create_cache_key_raw(url.as_str(), Some(method), auth);
 
-        let http_response = HttpResponse {
+        let job = super::dump_remote::DumpJob {
+            cache_key: cache_key,
+            cache_site: cache_site.to_string(),
+            url: url.to_string(),
+            method: method.to_string(),
+            status: status,
+            request_headers: req_headers,
+            response_headers: resp_headers,
             body: body_bytes,
-            headers: resp_headers,
-            status,
-            url,
-            version,
+            http_version: version,
+            dump_remote: dump_remote.map(|s| s.to_string()),
         };
 
-        let result = tokio::time::timeout(std::time::Duration::from_millis(100), async {
-            put_hybrid_cache(
-                &cache_key,
-                cache_site,
-                http_response,
-                method,
-                req_headers,
-                dump_remote,
-            )
-            .await
-        })
-        .await;
-
-        if let Err(result) = result {
-            tracing::debug!("Storing cache timeout {}", result);
+        if super::dump_remote::worke_inited() {
+            if !super::dump_remote::try_enqueue(job) {
+                tracing::debug!("remote dump skipped (worker not initialized or queue full)");
+            }
+        } else {
+            if let Err(err) = super::dump_remote::enqueue(job).await {
+                tracing::debug!(
+                    "remote dump skipped (worker not initialized or queue full) - {:?}",
+                    err
+                );
+            }
         }
     }
 
@@ -607,7 +646,6 @@ async fn handle_fetch_paused(
     } else {
         tracing::debug!("Cache MISS: {}, continuing request", current_url);
         let params = ContinueRequestParams::new(ev.request_id.clone());
-
         page.send_command(params).await?;
     }
 

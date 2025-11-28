@@ -1,3 +1,5 @@
+/// Dump remote cache.
+pub mod dump_remote;
 /// Cache manager.
 pub mod manager;
 /// Remote cache.

@@ -550,6 +550,74 @@ impl Page {
         Ok(self)
     }
 
+    /// Navigate directly to the given URL checking the HTTP cache first.
+    ///
+    /// This resolves directly after the requested URL is fully loaded. Does nothing without the 'cache' feature on.
+    #[cfg(feature = "cache")]
+    pub async fn goto_with_cache_http_future(
+        &self,
+        params: impl Into<NavigateParams>,
+        auth_opt: Option<&str>,
+    ) -> Result<Arc<crate::HttpRequest>> {
+        use crate::cache::{get_cached_url, rewrite_base_tag};
+        let navigate_params: NavigateParams = params.into();
+        let mut force_navigate = true;
+        let mut navigation_result = None;
+
+        // todo: pull in the headers from auth.
+        if let Some(source) = get_cached_url(&navigate_params.url, auth_opt).await {
+            let html = rewrite_base_tag(&source, &Some(&navigate_params.url)).await;
+            if let Ok(frame_id) = self.mainframe().await {
+                let base = self.http_future(browser_protocol::page::SetDocumentContentParams {
+                    frame_id: frame_id.unwrap_or_default(),
+                    html,
+                });
+
+                if let Ok(page_base) = base {
+                    match page_base.await {
+                        Ok(result) => {
+                            navigation_result = result;
+                            tracing::info!("Found cached url - ({:?})", &navigate_params.url);
+                            force_navigate = false;
+                        }
+                        Err(e) => {
+                            tracing::error!(
+                                "Set Content Error({:?}) - {:?}",
+                                e,
+                                &navigate_params.url
+                            );
+                            force_navigate = false;
+                            if let crate::page::CdpError::Timeout = e {
+                                force_navigate = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if force_navigate {
+            if let Ok(page_base) = self.http_future(navigate_params) {
+                let http_result = page_base.await?;
+
+                if let Some(res) = &http_result {
+                    if let Some(err) = &res.failure_text {
+                        return Err(CdpError::ChromeMessage(err.into()));
+                    }
+                }
+                navigation_result = http_result;
+            }
+        }
+
+        if let Some(res) = navigation_result {
+            Ok(res)
+        } else {
+            Err(CdpError::ChromeMessage(
+                "failed to get navigation result".into(),
+            ))
+        }
+    }
+
     /// Navigate directly to the given URL concurrenctly checking the cache and seeding.
     ///
     /// This resolves directly after the requested URL is fully loaded. Does nothing without the 'cache' feature on.
@@ -560,12 +628,21 @@ impl Page {
         auth_opt: Option<&str>,
         remote: Option<&str>,
     ) -> Result<&Self> {
+        use crate::cache::manager::site_key_for_target_url;
+
         let navigate_params = params.into();
         let target_url = navigate_params.url.clone();
+        let cache_site = site_key_for_target_url(&target_url, auth_opt);
+
+        let _ = self.set_cache_key(Some(cache_site.clone())).await;
+
         let _ = tokio::join!(
-            self.seed_cache(&target_url, auth_opt, remote),
+            self.seed_cache(&cache_site, auth_opt, remote),
             self.goto_with_cache(navigate_params, auth_opt)
         );
+
+        let _ = self.clear_local_cache(&cache_site);
+
         Ok(self)
     }
 
@@ -585,19 +662,62 @@ impl Page {
         let navigate_params = params.into();
         let target_url = navigate_params.url.clone();
 
+        let cache_site = crate::cache::manager::site_key_for_target_url(&target_url, auth_opt);
+
+        let _ = self.set_cache_key(Some(cache_site.clone())).await;
+
         let _ = tokio::join!(
             self.spawn_cache_listener(
-                &target_url,
-                None,
+                &cache_site,
+                auth_opt.map(|f| f.into()),
                 cache_strategy.clone(),
                 remote.map(|f| f.into())
             ),
-            self.spawn_cache_intercepter(None, cache_policy, cache_strategy),
-            self.seed_cache(&target_url, auth_opt, remote),
+            self.spawn_cache_intercepter(auth_opt.map(|f| f.into()), cache_policy, cache_strategy),
+            self.seed_cache(&cache_site, auth_opt, remote),
             self.goto_with_cache(navigate_params, auth_opt)
         );
 
+        let _ = self.clear_local_cache(&cache_site);
+
         Ok(self)
+    }
+
+    /// Execute a command and return the `Command::Response` with caching.
+    /// Use page.spawn_cache_intercepter if you do not have interception enabled beforehand to use the cache responses.
+    /// This resolves directly after the requested URL is fully loaded. Does nothing without the 'cache' feature on.
+    #[cfg(feature = "cache")]
+    pub async fn http_future_with_cache(
+        &self,
+        navigate_params: crate::cdp::browser_protocol::page::NavigateParams,
+        auth_opt: Option<&str>,
+        cache_policy: Option<crate::cache::BasicCachePolicy>,
+        cache_strategy: Option<crate::cache::CacheStrategy>,
+        remote: Option<&str>,
+    ) -> Result<Arc<crate::HttpRequest>> {
+        let remote = remote.or(Some("true"));
+        let target_url = navigate_params.url.clone();
+
+        let cache_site = crate::cache::manager::site_key_for_target_url(&target_url, auth_opt);
+
+        // we have to set the cache policy here too.
+        let _ = self.set_cache_key(Some(cache_site.clone())).await;
+
+        let (_, __, ___, cache_future) = tokio::join!(
+            self.spawn_cache_listener(
+                &cache_site,
+                auth_opt.map(|f| f.into()),
+                cache_strategy.clone(),
+                remote.map(|f| f.into())
+            ),
+            self.spawn_cache_intercepter(auth_opt.map(|f| f.into()), cache_policy, cache_strategy),
+            self.seed_cache(&cache_site, auth_opt, remote),
+            self.goto_with_cache_http_future(navigate_params, auth_opt)
+        );
+
+        let _ = self.clear_local_cache(&cache_site);
+
+        cache_future
     }
 
     /// Navigate directly to the given URL concurrenctly checking the cache and seeding.
@@ -611,9 +731,15 @@ impl Page {
         remote: Option<&str>,
     ) -> Result<&Self> {
         let navigate_params = params.into();
-        self.seed_cache(&navigate_params.url, auth_opt, remote)
+        let navigation_url = navigate_params.url.to_string();
+
+        let cache_site = crate::cache::manager::site_key_for_target_url(&navigation_url, auth_opt);
+
+        let _ = self.set_cache_key(Some(cache_site.clone())).await;
+        self.seed_cache(&navigation_url, auth_opt.clone(), remote)
             .await?;
         self.goto_with_cache(navigate_params, auth_opt).await?;
+        let _ = self.clear_local_cache_with_key(&navigation_url, auth_opt);
         Ok(self)
     }
 
@@ -743,6 +869,16 @@ impl Page {
             .send(TargetMessage::AllFrames(tx))
             .await?;
         Ok(rx.await?)
+    }
+
+    /// Set the cache key of the page
+    pub async fn set_cache_key(&self, cache_key: Option<String>) -> Result<()> {
+        self.inner
+            .sender()
+            .clone()
+            .send(TargetMessage::CacheKey(cache_key))
+            .await?;
+        Ok(())
     }
 
     /// Allows overriding user agent with the given string.
@@ -2427,15 +2563,36 @@ impl Page {
     }
 
     #[cfg(feature = "cache")]
-    /// Seed the cache. This does nothing without the 'cache' flag.
-    pub async fn seed_cache(
+    /// Clear the local cache after navigation.
+    pub async fn clear_local_cache(&self, cache_site: &str) -> Result<&Self> {
+        crate::cache::remote::clear_local_session_cache(&cache_site).await;
+        Ok(self)
+    }
+
+    #[cfg(feature = "cache")]
+    /// Clear the local cache after navigation with the key
+    pub async fn clear_local_cache_with_key(
         &self,
         target_url: &str,
         auth: Option<&str>,
+    ) -> Result<&Self> {
+        let cache_site =
+            crate::cache::manager::site_key_for_target_url(target_url, auth.as_deref());
+
+        crate::cache::remote::clear_local_session_cache(&cache_site).await;
+
+        Ok(self)
+    }
+
+    #[cfg(feature = "cache")]
+    /// Seed the cache. This does nothing without the 'cache' flag.
+    pub async fn seed_cache(
+        &self,
+        cache_site: &str,
+        auth: Option<&str>,
         remote: Option<&str>,
     ) -> Result<&Self> {
-        use crate::cache::remote::get_cache_site;
-        get_cache_site(&target_url, auth.as_deref(), remote.as_deref()).await;
+        crate::cache::remote::get_cache_site(&cache_site, auth.as_deref(), remote.as_deref()).await;
         Ok(self)
     }
 
@@ -2446,11 +2603,14 @@ impl Page {
     /// Set the value to Some("true") to use the default endpoint.
     pub async fn spawn_cache_listener(
         &self,
-        cache_site: &str,
+        target_url: &str,
         auth: Option<String>,
         cache_strategy: Option<crate::cache::CacheStrategy>,
         dump_remote: Option<String>,
     ) -> Result<tokio::task::JoinHandle<()>, crate::error::CdpError> {
+        let cache_site =
+            crate::cache::manager::site_key_for_target_url(target_url, auth.as_deref());
+
         let handle = crate::cache::spawn_response_cache_listener(
             self.clone(),
             cache_site.into(),
@@ -2471,8 +2631,8 @@ impl Page {
         policy: Option<crate::cache::BasicCachePolicy>,
         cache_strategy: Option<crate::cache::CacheStrategy>,
     ) -> Result<&Self> {
-        use crate::cache::spawn_fetch_cache_interceptor;
-        spawn_fetch_cache_interceptor(self.clone(), auth, policy, cache_strategy).await?;
+        crate::cache::spawn_fetch_cache_interceptor(self.clone(), auth, policy, cache_strategy)
+            .await?;
         Ok(self)
     }
 

@@ -228,7 +228,20 @@ impl Target {
 
     /// Navigate a frame
     pub fn goto(&mut self, req: FrameRequestedNavigation) {
-        self.frame_manager.goto(req)
+        if self.network_manager.has_target_domain() {
+            self.network_manager.clear_target_domain();
+            let goto_url = req
+                .req
+                .params
+                .as_object()
+                .and_then(|o| o.get("url"))
+                .and_then(|v| v.as_str());
+
+            if let Some(url) = goto_url {
+                self.network_manager.set_page_url(url.into());
+            }
+        }
+        self.frame_manager.goto(req);
     }
 
     /// Create a new page from the session.
@@ -310,7 +323,9 @@ impl Target {
                 .frame_manager
                 .on_frame_attached(ev.frame_id.clone(), Some(ev.parent_frame_id.clone())),
             CdpEvent::PageFrameDetached(ev) => self.frame_manager.on_frame_detached(ev),
-            CdpEvent::PageFrameNavigated(ev) => self.frame_manager.on_frame_navigated(&ev.frame),
+            CdpEvent::PageFrameNavigated(ev) => {
+                self.frame_manager.on_frame_navigated(&ev.frame);
+            }
             CdpEvent::PageNavigatedWithinDocument(ev) => {
                 self.frame_manager.on_frame_navigated_within_document(ev)
             }
@@ -587,6 +602,9 @@ impl Target {
                                     .collect(),
                             );
                         }
+                        TargetMessage::CacheKey(cache_key) => {
+                            self.network_manager.set_cache_site_key(cache_key);
+                        }
                         TargetMessage::Url(req) => {
                             let GetUrl { frame_id, tx } = req;
                             let frame = if let Some(frame_id) = frame_id {
@@ -646,7 +664,6 @@ impl Target {
                                 self.wait_for_network_almost_idle.push(tx);
                             }
                         }
-
                         TargetMessage::AddEventListener(req) => {
                             if req.method == "Fetch.requestPaused" {
                                 self.network_manager.disable_request_intercept();
@@ -968,6 +985,8 @@ pub enum TargetMessage {
     MainFrame(Sender<Option<FrameId>>),
     /// Return all the frames of this target's page
     AllFrames(Sender<Vec<FrameId>>),
+    /// Set the cache key for the target page.
+    CacheKey(Option<String>),
     /// Return the url if available
     Url(GetUrl),
     /// Return the name if available

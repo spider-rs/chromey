@@ -121,3 +121,7 @@ pub use serde;
 pub use serde_json;
 #[cfg(feature = "simd")]
 pub use sonic_rs as serde_json;
+
+/// Init the cache global worker.
+#[cfg(feature = "cache")]
+pub use cache::dump_remote::init_default_cache_worker;
