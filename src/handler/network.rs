@@ -528,7 +528,9 @@ impl NetworkManager {
         use crate::cdp::browser_protocol::fetch::HeaderEntry;
         use crate::handler::network::fetch::FulfillRequestParams;
         use base64::Engine;
+
         let mut resp_headers = Vec::<HeaderEntry>::with_capacity(headers.len());
+
         for (k, v) in headers.iter() {
             resp_headers.push(HeaderEntry {
                 name: k.clone().into(),
@@ -538,11 +540,13 @@ impl NetworkManager {
 
         let mut params = FulfillRequestParams::new(request_id.clone(), status);
 
+        // TODO: have this already encoded prior.
         params.body = Some(
             base64::engine::general_purpose::STANDARD
                 .encode(body)
                 .into(),
         );
+
         params.response_headers = Some(resp_headers);
 
         self.push_cdp_request(params);

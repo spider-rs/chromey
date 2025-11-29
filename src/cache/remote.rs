@@ -220,9 +220,8 @@ pub async fn get_cache_site(target_url: &str, auth: Option<&str>, remote: Option
         cache_key
     );
 
-    // Seed all entries into our local CACACHE_MANAGER.
     for payload in payloads {
-        if let Err(err) = seed_payload_into_local_cache(&cache_key, &payload).await {
+        if let Err(err) = seed_payload_into_local_cache(&cache_key, &payload, &target_url).await {
             tracing::warn!(
                 "remote cache get: failed to seed resource {} for website {}: {}",
                 payload.resource_key,
@@ -267,16 +266,22 @@ pub fn session_cache_insert(
 async fn seed_payload_into_local_cache(
     cache_key: &str,
     payload: &HybridCachePayload,
+    target_url: &str,
 ) -> Result<(), String> {
-    let body = general_purpose::STANDARD
-        .decode(&payload.body_base64)
-        .map_err(|e| format!("invalid base64 body for {}: {e}", payload.resource_key))?;
+    if payload.body_base64.is_empty() {
+        return Ok(());
+    }
 
-    // Build URI for CachePolicy request side.
+    let same_document = payload.url == target_url;
+
     let uri = payload
         .url
         .parse()
         .map_err(|e| format!("invalid URI for {}: {e}", payload.url))?;
+
+    let body = general_purpose::STANDARD
+        .decode(&payload.body_base64)
+        .map_err(|e| format!("invalid base64 body for {}: {e}", payload.resource_key))?;
 
     let req = HttpRequestLike {
         uri,
@@ -291,29 +296,30 @@ async fn seed_payload_into_local_cache(
 
     let policy = CachePolicy::new(&req, &res);
 
-    // Build the http_cache_reqwest::HttpResponse used by CACACHE_MANAGER.
     let url =
         Url::parse(&payload.url).map_err(|e| format!("invalid Url for {}: {e}", payload.url))?;
 
     let http_res = http_cache_reqwest::HttpResponse {
         url,
-        body,
         headers: payload.response_headers.clone(),
         version: payload.http_version.into(),
         status: payload.status,
+        body,
     };
 
     let key = payload.resource_key.clone();
-
     let session_key = format!("{}:{}", payload.method, http_res.url);
 
-    session_cache_insert(cache_key, http_res.clone(), policy.clone(), &session_key);
-
-    let put_result = CACACHE_MANAGER.put(key.clone(), http_res, policy).await;
-
-    if let Err(e) = put_result {
-        return Err(format!("CACACHE_MANAGER.put failed for {}: {e}", key));
+    if same_document {
+        let put_result = CACACHE_MANAGER
+            .put(key.clone(), http_res.clone(), policy.clone())
+            .await;
+        if let Err(e) = put_result {
+            return Err(format!("CACACHE_MANAGER.put failed for {}: {e}", key));
+        }
     }
+
+    session_cache_insert(cache_key, http_res, policy, &session_key);
 
     Ok(())
 }

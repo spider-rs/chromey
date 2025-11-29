@@ -202,7 +202,7 @@ pub fn create_site_key(target_url: &str, auth: Option<&str>, method: Option<&str
     hash_key_v1(&raw)
 }
 
-/// Get a cached url.
+/// Get a cached url from the hybrid cache.
 pub async fn get_cached_url(target_url: &str, auth_opt: Option<&str>) -> Option<Vec<u8>> {
     let cache_url = create_cache_key_raw(target_url, None, auth_opt.as_deref());
 
