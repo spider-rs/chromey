@@ -336,31 +336,40 @@ pub async fn put_hybrid_cache(
             }
 
             if put_cache {
-                let job = super::dump_remote::DumpJob {
-                    cache_key: cache_key.to_string(),
-                    cache_site: cache_site.to_string(),
-                    url: http_response.url.to_string(),
-                    method: method.to_string(),
-                    status: http_response.status,
-                    request_headers: http_request_headers.clone(),
-                    response_headers: http_response.headers.clone(),
-                    body: http_response.body.clone(),
-                    http_version: http_response.version.clone(),
-                    dump_remote: dump_remote.map(|s| s.to_string()),
-                };
+                let url = http_response.url.to_string();
+                let method = method.to_string();
+                let current_url = format!("{}:{}", &method, &url);
+                let cached =
+                    crate::cache::remote::check_session_cache_item(cache_site, &current_url);
 
-                if super::dump_remote::worke_inited() {
-                    if !super::dump_remote::try_enqueue(job) {
-                        tracing::debug!(
-                            "remote dump skipped (worker not initialized or queue full)"
-                        );
-                    }
-                } else {
-                    if let Err(err) = super::dump_remote::enqueue(job).await {
-                        tracing::debug!(
-                            "remote dump skipped (worker not initialized or queue full) - {:?}",
-                            err
-                        );
+                // insert the item into the cache.
+                if !cached {
+                    let job = super::dump_remote::DumpJob {
+                        cache_key: cache_key.to_string(),
+                        cache_site: cache_site.to_string(),
+                        url: url,
+                        method: method,
+                        status: http_response.status,
+                        request_headers: http_request_headers.clone(),
+                        response_headers: http_response.headers.clone(),
+                        body: http_response.body.clone(),
+                        http_version: http_response.version.clone(),
+                        dump_remote: dump_remote.map(|s| s.to_string()),
+                    };
+
+                    if super::dump_remote::worke_inited() {
+                        if !super::dump_remote::try_enqueue(job) {
+                            tracing::debug!(
+                                "remote dump skipped (worker not initialized or queue full)"
+                            );
+                        }
+                    } else {
+                        if let Err(err) = super::dump_remote::enqueue(job).await {
+                            tracing::debug!(
+                                "remote dump skipped (worker not initialized or queue full) - {:?}",
+                                err
+                            );
+                        }
                     }
                 }
             }
@@ -481,6 +490,9 @@ pub fn site_key_for_target_url(target_url: &str, auth: Option<&str>) -> String {
     hex::encode(blake3::hash(input.as_bytes()).as_bytes()) // 64 hex chars, path-safe
 }
 
+/// Default method for responses.
+const DEFAULT_METHOD: &str = "GET";
+
 /// Handle single response from network and store it in the cache.
 async fn handle_single_response(
     page: &Page,
@@ -499,7 +511,14 @@ async fn handle_single_response(
     let eligible_for_cache =
         document_resource || allow_cache_response(&ev.r#type, cache_strategy.as_ref());
 
-    if !eligible_for_cache {
+    if !eligible_for_cache || ev.response.encoded_data_length == 0.0 {
+        return Ok(());
+    }
+
+    let method = DEFAULT_METHOD.to_string();
+    let current_url = format!("{}:{}", &method, &ev.response.url);
+
+    if crate::cache::remote::check_session_cache_item(cache_site, &current_url) {
         return Ok(());
     }
 
@@ -523,7 +542,7 @@ async fn handle_single_response(
             .map(headers_to_string_map)
             .unwrap_or_default();
 
-        let url = ev.response.url.parse::<url::Url>()?;
+        let url = &ev.response.url;
         let status = ev.response.status as u16;
 
         let version = match ev.response.protocol.as_deref() {
@@ -531,9 +550,7 @@ async fn handle_single_response(
             _ => HttpVersion::Http11,
         };
 
-        let method = "GET";
-
-        let cache_key = create_cache_key_raw(url.as_str(), Some(method), auth);
+        let cache_key = create_cache_key_raw(url.as_str(), Some(DEFAULT_METHOD), auth);
 
         let job = super::dump_remote::DumpJob {
             cache_key: cache_key,

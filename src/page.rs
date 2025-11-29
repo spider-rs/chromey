@@ -436,8 +436,8 @@ impl Page {
         let name = name.into();
         let expression = utils::evaluation_string(function, &["exposedFun", name.as_str()]);
 
-        self.execute(AddBindingParams::new(name)).await?;
-        self.execute(AddScriptToEvaluateOnNewDocumentParams::new(
+        self.send_command(AddBindingParams::new(name)).await?;
+        self.send_command(AddScriptToEvaluateOnNewDocumentParams::new(
             expression.clone(),
         ))
         .await?;
@@ -692,10 +692,10 @@ impl Page {
                 remote.map(|f| f.into())
             ),
             run_intercept,
-            self.seed_cache(&target_url, auth_opt, remote),
-            self.goto_with_cache(navigate_params, auth_opt)
+            self.seed_cache(&target_url, auth_opt, remote)
         );
 
+        let _ = self.goto_with_cache(navigate_params, auth_opt).await;
         let _ = self.clear_local_cache(&cache_site);
 
         Ok(self)
@@ -780,7 +780,7 @@ impl Page {
             }
         };
 
-        let (_, __, ___, cache_future) = tokio::join!(
+        let _ = tokio::join!(
             self.spawn_cache_listener(
                 &cache_site,
                 auth_opt.map(|f| f.into()),
@@ -788,11 +788,14 @@ impl Page {
                 remote.map(|f| f.into())
             ),
             run_intercept,
-            self.seed_cache(&target_url, auth_opt, remote),
-            self.goto_with_cache_http_future(navigate_params, auth_opt)
+            self.seed_cache(&target_url, auth_opt, remote)
         );
 
+        let cache_future = self
+            .goto_with_cache_http_future(navigate_params, auth_opt)
+            .await;
         let _ = self.clear_local_cache(&cache_site);
+
         cache_future
     }
 
@@ -1901,7 +1904,7 @@ impl Page {
 
     /// Brings page to front (activates tab)
     pub async fn bring_to_front(&self) -> Result<&Self> {
-        self.execute(BringToFrontParams::default()).await?;
+        self.send_command(BringToFrontParams::default()).await?;
         Ok(self)
     }
 
@@ -1929,7 +1932,7 @@ impl Page {
 
     /// Emulates hardware concurrency.
     pub async fn emulate_hardware_concurrency(&self, hardware_concurrency: i64) -> Result<&Self> {
-        self.execute(SetHardwareConcurrencyOverrideParams::new(
+        self.send_command(SetHardwareConcurrencyOverrideParams::new(
             hardware_concurrency,
         ))
         .await?;
@@ -1938,7 +1941,7 @@ impl Page {
 
     /// Emulates the given media type or media feature for CSS media queries
     pub async fn emulate_media_features(&self, features: Vec<MediaFeature>) -> Result<&Self> {
-        self.execute(SetEmulatedMediaParams::builder().features(features).build())
+        self.send_command(SetEmulatedMediaParams::builder().features(features).build())
             .await?;
         Ok(self)
     }
@@ -1963,7 +1966,7 @@ impl Page {
         &self,
         timezoune_id: impl Into<SetTimezoneOverrideParams>,
     ) -> Result<&Self> {
-        self.execute(timezoune_id.into()).await?;
+        self.send_command(timezoune_id.into()).await?;
         Ok(self)
     }
 
@@ -1972,7 +1975,7 @@ impl Page {
         &self,
         locale: impl Into<SetLocaleOverrideParams>,
     ) -> Result<&Self> {
-        self.execute(locale.into()).await?;
+        self.send_command(locale.into()).await?;
         Ok(self)
     }
 
@@ -1981,7 +1984,7 @@ impl Page {
         &self,
         viewport: impl Into<SetDeviceMetricsOverrideParams>,
     ) -> Result<&Self> {
-        self.execute(viewport.into()).await?;
+        self.send_command(viewport.into()).await?;
         Ok(self)
     }
 
@@ -1990,7 +1993,7 @@ impl Page {
         &self,
         geolocation: impl Into<SetGeolocationOverrideParams>,
     ) -> Result<&Self> {
-        self.execute(geolocation.into()).await?;
+        self.send_command(geolocation.into()).await?;
         Ok(self)
     }
 
@@ -2008,7 +2011,7 @@ impl Page {
     /// # }
     /// ```
     pub async fn reload(&self) -> Result<&Self> {
-        self.execute(ReloadParams::default()).await?;
+        self.send_command(ReloadParams::default()).await?;
         self.wait_for_navigation().await
     }
 
@@ -2025,7 +2028,7 @@ impl Page {
     /// # }
     /// ```
     pub async fn reload_no_wait(&self) -> Result<&Self> {
-        self.execute(ReloadParams::default()).await?;
+        self.send_command(ReloadParams::default()).await?;
         Ok(self)
     }
 

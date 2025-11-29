@@ -318,7 +318,7 @@ async fn seed_payload_into_local_cache(
     Ok(())
 }
 
-/// Get the resource from the cache. TODO: add different methods.
+/// Get the resource from the cache.
 pub fn get_session_cache_item(
     cache_key: &str,
     target_url: &str,
@@ -326,4 +326,11 @@ pub fn get_session_cache_item(
     LOCAL_SESSION_CACHE
         .get(cache_key)
         .and_then(|local_cache| local_cache.get(target_url).cloned())
+}
+
+/// Check the resource from the cache.
+pub fn check_session_cache_item(cache_key: &str, target_url: &str) -> bool {
+    LOCAL_SESSION_CACHE
+        .get(cache_key)
+        .map_or(false, |local_cache| local_cache.contains_key(target_url))
 }
