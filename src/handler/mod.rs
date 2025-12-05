@@ -89,6 +89,8 @@ pub struct Handler {
     remaining_bytes: Option<u64>,
     /// The budget is exhausted.
     budget_exhausted: bool,
+    /// Tracks which targets we've already attached to, to avoid multiple sessions per target.
+    attached_targets: HashSet<TargetId>,
 }
 
 lazy_static::lazy_static! {
@@ -143,6 +145,7 @@ impl Handler {
             closing: false,
             remaining_bytes: None,
             budget_exhausted: false,
+            attached_targets: Default::default(),
         }
     }
 
@@ -222,9 +225,9 @@ impl Handler {
                     match to_command_response::<CreateTargetParams>(resp, method) {
                         Ok(resp) => {
                             if let Some(target) = self.targets.get_mut(&resp.target_id) {
-                                // move the sender to the target that sends its page once
-                                // initialized
                                 target.set_initiator(tx);
+                            } else {
+                                let _ = tx.send(Err(CdpError::NotFound)).ok();
                             }
                         }
                         Err(err) => {
@@ -235,18 +238,12 @@ impl Handler {
                 PendingRequest::GetTargets(tx) => {
                     match to_command_response::<GetTargetsParams>(resp, method) {
                         Ok(resp) => {
-                            let targets: Vec<TargetInfo> = resp.result.target_infos;
+                            let targets = resp.result.target_infos;
                             let results = targets.clone();
+
                             for target_info in targets {
-                                let target_id = target_info.target_id.clone();
                                 let event: EventTargetCreated = EventTargetCreated { target_info };
                                 self.on_target_created(event);
-                                let attach = AttachToTargetParams::new(target_id);
-                                let method = attach.identifier();
-
-                                if let Ok(params) = serde_json::to_value(attach) {
-                                    let _ = self.conn.submit_command(method, None, params);
-                                }
                             }
 
                             let _ = tx.send(Ok(results)).ok();
@@ -440,27 +437,22 @@ impl Handler {
     ///
     /// Creates a new `Target` instance and keeps track of it
     fn on_target_created(&mut self, event: EventTargetCreated) {
-        let browser_ctx = match event.target_info.browser_context_id {
-            Some(ref context_id) => {
-                let browser_context = BrowserContext {
+        if !self.browser_contexts.is_empty() {
+            if let Some(ref context_id) = event.target_info.browser_context_id {
+                let bc = BrowserContext {
                     id: Some(context_id.clone()),
                 };
-                if self.default_browser_context.id.is_none() {
-                    self.default_browser_context = browser_context.clone();
-                };
-                self.browser_contexts.insert(browser_context.clone());
-
-                browser_context
+                if !self.browser_contexts.contains(&bc) {
+                    return;
+                }
             }
-            _ => event
-                .target_info
-                .browser_context_id
-                .clone()
-                .map(BrowserContext::from)
-                .filter(|id| self.browser_contexts.contains(id))
-                .unwrap_or_else(|| self.default_browser_context.clone()),
-        };
-
+        }
+        let browser_ctx = event
+            .target_info
+            .browser_context_id
+            .clone()
+            .map(BrowserContext::from)
+            .unwrap_or_else(|| self.default_browser_context.clone());
         let target = Target::new(
             event.target_info,
             TargetConfig {
@@ -509,6 +501,8 @@ impl Handler {
 
     /// Fired when the target was destroyed in the browser
     fn on_target_destroyed(&mut self, event: EventTargetDestroyed) {
+        self.attached_targets.remove(&event.target_id);
+
         if let Some(target) = self.targets.remove(&event.target_id) {
             // TODO shutdown?
             if let Some(session) = target.session_id() {
@@ -589,6 +583,10 @@ impl Stream for Handler {
                         pin.submit_close(tx, now);
                     }
                     HandlerMessage::CreatePage(params, tx) => {
+                        if let Some(ref id) = params.browser_context_id {
+                            pin.browser_contexts
+                                .insert(BrowserContext::from(id.clone()));
+                        }
                         pin.create_page(params, tx);
                     }
                     HandlerMessage::GetPages(tx) => {
@@ -602,11 +600,20 @@ impl Stream for Handler {
                         let _ = tx.send(pages);
                     }
                     HandlerMessage::InsertContext(ctx) => {
-                        pin.default_browser_context = ctx.clone();
+                        if pin.default_browser_context.id().is_none() {
+                            pin.default_browser_context = ctx.clone();
+                        }
                         pin.browser_contexts.insert(ctx);
                     }
                     HandlerMessage::DisposeContext(ctx) => {
                         pin.browser_contexts.remove(&ctx);
+                        pin.attached_targets.retain(|tid| {
+                            pin.targets
+                                .get(tid)
+                                .and_then(|t| t.browser_context_id()) // however you expose it
+                                .map(|id| Some(id) != ctx.id())
+                                .unwrap_or(true)
+                        });
                         pin.closing = true;
                         dispose = true;
                     }

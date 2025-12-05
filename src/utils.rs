@@ -121,7 +121,12 @@ fn skip_args(input: &mut &str) -> bool {
 pub fn is_data_resource(resource_type: &ResourceType) -> bool {
     matches!(
         resource_type,
-        ResourceType::Xhr | ResourceType::Fetch | ResourceType::WebSocket
+        ResourceType::Xhr
+            | ResourceType::Fetch
+            | ResourceType::WebSocket
+            | ResourceType::EventSource
+            | ResourceType::Prefetch
+            | ResourceType::Preflight
     )
 }
 

@@ -534,6 +534,7 @@ impl Browser {
         params: CreateBrowserContextParams,
     ) -> Result<BrowserContextId> {
         let response = self.execute(params).await?;
+
         Ok(response.result.browser_context_id)
     }
 

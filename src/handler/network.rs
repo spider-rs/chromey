@@ -9,6 +9,7 @@ use crate::cmd::CommandChain;
 use crate::handler::http::HttpRequest;
 use aho_corasick::AhoCorasick;
 use case_insensitive_string::CaseInsensitiveString;
+use chromiumoxide_cdp::cdp::browser_protocol::fetch::{RequestPattern, RequestStage};
 use chromiumoxide_cdp::cdp::browser_protocol::network::{
     EmulateNetworkConditionsParams, EventLoadingFailed, EventLoadingFinished,
     EventRequestServedFromCache, EventRequestWillBeSent, EventResponseReceived, Headers,
@@ -19,7 +20,6 @@ use chromiumoxide_cdp::cdp::browser_protocol::{
     fetch::{
         self, AuthChallengeResponse, AuthChallengeResponseResponse, ContinueRequestParams,
         ContinueWithAuthParams, DisableParams, EventAuthRequired, EventRequestPaused,
-        RequestPattern,
     },
     network::SetBypassServiceWorkerParams,
 };
@@ -76,6 +76,22 @@ lazy_static! {
     /// Determine if a script should be rendered in the browser by name.
     pub static ref ALLOWED_MATCHER: AhoCorasick = AhoCorasick::new(JS_FRAMEWORK_ALLOW.iter()).expect("matcher to build");
 
+    /// General patterns for popular libraries and resources
+    static ref JS_FRAMEWORK_ALLOW_3RD_PARTY: Vec<&'static str> = vec![
+        // Verified 3rd parties for request
+        "https://m.stripe.network/",
+        "https://challenges.cloudflare.com/",
+        "https://www.google.com/recaptcha/api.js",
+        "https://google.com/recaptcha/api.js",
+        "https://js.stripe.com/",
+        "https://cdn.prod.website-files.com/", // webflow cdn scripts
+        "https://cdnjs.cloudflare.com/",        // cloudflare cdn scripts
+        "https://code.jquery.com/jquery-"
+    ];
+
+    /// Determine if a script should be rendered in the browser by name.
+    pub static ref ALLOWED_MATCHER_3RD_PARTY: AhoCorasick = AhoCorasick::new(JS_FRAMEWORK_ALLOW_3RD_PARTY.iter()).expect("matcher to build");
+
     /// path of a js framework
     pub static ref JS_FRAMEWORK_PATH: phf::Set<&'static str> = {
         phf::phf_set! {
@@ -123,8 +139,8 @@ lazy_static! {
     pub static ref IGNORE_NETWORKING_RESOURCE_MAP: phf::Set<&'static str> = phf::phf_set! {
         "CspViolationReport",
         "Manifest",
-        "Other",
-        "Prefetch",
+        // "Other",
+        // "Prefetch",
         "Ping",
     };
 
@@ -161,7 +177,7 @@ lazy_static! {
     pub static ref ENABLE_FETCH: chromiumoxide_cdp::cdp::browser_protocol::fetch::EnableParams = {
         fetch::EnableParams::builder()
         .handle_auth_requests(true)
-        .pattern(RequestPattern::builder().url_pattern("*").build())
+        .pattern(RequestPattern::builder().url_pattern("*").request_stage(RequestStage::Request).build())
         .build()
     };
 }
@@ -310,8 +326,13 @@ impl NetworkManager {
         }
     }
 
-    pub fn disable_request_intercept(&mut self) {
+    /// Enable the fetch interception.
+    pub fn enable_request_intercept(&mut self) {
         self.protocol_request_interception_enabled = true;
+    }
+
+    pub fn disable_request_intercept(&mut self) {
+        self.protocol_request_interception_enabled = false;
     }
 
     /// Set the cache site key.
@@ -571,10 +592,11 @@ impl NetworkManager {
     /// On fetch requesdt paused interception.
     #[inline]
     pub fn on_fetch_request_paused(&mut self, event: &EventRequestPaused) {
-        // If both interceptions are enabled, do nothing.
         if self.user_request_interception_enabled && self.protocol_request_interception_enabled {
             return;
         }
+
+        let resource_type = &event.resource_type;
 
         if self.block_all {
             tracing::debug!(
@@ -585,21 +607,23 @@ impl NetworkManager {
             return self.fail_request_blocked(&event.request_id);
         }
 
-        // If this paused request corresponds to a "request_will_be_sent", hand it off and exit.
+        // // If both interceptions are enabled, do nothing.
+        // if !self.user_request_interception_enabled && self.protocol_request_interception_enabled {
+        //     self.push_cdp_request(ContinueRequestParams::new(event.request_id.clone()))
+        // }
+
         if let Some(network_id) = event.network_id.as_ref() {
             if let Some(request_will_be_sent) =
                 self.requests_will_be_sent.remove(network_id.as_ref())
             {
-                return self
-                    .on_request(&request_will_be_sent, Some(event.request_id.clone().into()));
+                self.on_request(&request_will_be_sent, Some(event.request_id.clone().into()));
+            } else {
+                self.request_id_to_interception_id
+                    .insert(network_id.clone(), event.request_id.clone().into());
             }
-        } else {
-            // No network_id, just continue.
-            return self.push_cdp_request(ContinueRequestParams::new(event.request_id.clone()));
         }
 
         // From here on, we handle the full decision tree.
-        let resource_type = &event.resource_type;
         let javascript_resource = *resource_type == ResourceType::Script;
         let document_resource = *resource_type == ResourceType::Document;
         let network_resource = !document_resource && crate::utils::is_data_resource(resource_type);
@@ -665,6 +689,10 @@ impl NetworkManager {
         // Custom website block list.
         if !skip_networking && (javascript_resource || network_resource) {
             skip_networking = crate::handler::blockers::block_websites::block_website(current_url);
+        }
+
+        if !skip_networking && ALLOWED_MATCHER_3RD_PARTY.is_match(current_url) {
+            skip_networking = false;
         }
 
         if skip_networking {

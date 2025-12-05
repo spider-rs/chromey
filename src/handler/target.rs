@@ -315,7 +315,49 @@ impl Target {
 
     /// On CDP Event message.
     pub fn on_event(&mut self, event: CdpEventMessage) {
-        let CdpEventMessage { params, method, .. } = event;
+        let CdpEventMessage {
+            params,
+            method,
+            session_id,
+            ..
+        } = event;
+
+        let is_session_scoped = matches!(
+            params,
+            CdpEvent::FetchRequestPaused(_)
+                | CdpEvent::FetchAuthRequired(_)
+                | CdpEvent::NetworkRequestWillBeSent(_)
+                | CdpEvent::NetworkResponseReceived(_)
+                | CdpEvent::NetworkLoadingFinished(_)
+                | CdpEvent::NetworkLoadingFailed(_)
+                | CdpEvent::PageFrameAttached(_)
+                | CdpEvent::PageFrameDetached(_)
+                | CdpEvent::PageFrameNavigated(_)
+                | CdpEvent::PageNavigatedWithinDocument(_)
+                | CdpEvent::PageLifecycleEvent(_)
+                | CdpEvent::PageFrameStartedLoading(_)
+                | CdpEvent::PageFrameStoppedLoading(_)
+                | CdpEvent::RuntimeExecutionContextCreated(_)
+                | CdpEvent::RuntimeExecutionContextDestroyed(_)
+                | CdpEvent::RuntimeExecutionContextsCleared(_)
+                | CdpEvent::RuntimeBindingCalled(_)
+        );
+
+        if is_session_scoped {
+            let ev_sid: &str = match session_id.as_deref() {
+                Some(s) => s,
+                None => return,
+            };
+
+            let self_sid: &str = match self.session_id.as_ref() {
+                Some(sid) => sid.as_ref(),
+                None => return,
+            };
+
+            if self_sid != ev_sid {
+                return;
+            }
+        }
 
         match &params {
             // `FrameManager` events
@@ -668,7 +710,7 @@ impl Target {
                         }
                         TargetMessage::AddEventListener(req) => {
                             if req.method == "Fetch.requestPaused" {
-                                self.network_manager.disable_request_intercept();
+                                self.network_manager.enable_request_intercept();
                             }
                             // register a new listener
                             self.event_listeners.add_listener(req);
