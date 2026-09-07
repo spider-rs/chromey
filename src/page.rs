@@ -406,6 +406,20 @@ impl Page {
         self.inner.http_future(cmd)
     }
 
+    /// Navigate and wait for the final HTTP request.
+    ///
+    /// Resolves early with a synthetic failed [`HttpRequest`](crate::handler::http::HttpRequest)
+    /// when the navigate ack carries a non-empty `errorText` other than
+    /// `net::ERR_ABORTED` or a `net::ERR_HTTP_RESPONSE_CODE_FAILURE` prefix.
+    /// Those exceptions wait for a replacement navigation or committed error
+    /// body. [`Self::http_future`] always keeps waiting for lifecycle events.
+    pub fn navigate_http_future(
+        &self,
+        params: impl Into<NavigateParams>,
+    ) -> Result<HttpFuture<NavigateParams>> {
+        self.inner.navigate_http_future(params.into())
+    }
+
     /// Adds an event listener to the `Target` and returns the receiver part as
     /// `EventStream`
     ///
@@ -742,7 +756,7 @@ impl Page {
         }
 
         if force_navigate {
-            if let Ok(page_base) = self.http_future(navigate_params) {
+            if let Ok(page_base) = self.navigate_http_future(navigate_params) {
                 let http_result = page_base.await?;
 
                 if let Some(res) = &http_result {

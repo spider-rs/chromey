@@ -23,8 +23,8 @@ use chromiumoxide_cdp::cdp::browser_protocol::input::{
     DispatchMouseEventParams, DispatchMouseEventType, DragData, MouseButton,
 };
 use chromiumoxide_cdp::cdp::browser_protocol::page::{
-    FrameId, GetLayoutMetricsParams, GetLayoutMetricsReturns, PrintToPdfParams, SetBypassCspParams,
-    Viewport,
+    FrameId, GetLayoutMetricsParams, GetLayoutMetricsReturns, NavigateParams, PrintToPdfParams,
+    SetBypassCspParams, Viewport,
 };
 use chromiumoxide_cdp::cdp::browser_protocol::target::{ActivateTargetParams, SessionId, TargetId};
 use chromiumoxide_cdp::cdp::js_protocol::runtime::{
@@ -36,7 +36,7 @@ use crate::cmd::{to_command_response, CommandMessage};
 use crate::error::{CdpError, Result};
 use crate::handler::commandfuture::CommandFuture;
 use crate::handler::domworld::DOMWorldKind;
-use crate::handler::httpfuture::HttpFuture;
+use crate::handler::httpfuture::{navigate_error_text, HttpFuture};
 use crate::handler::sender::PageSender;
 use crate::handler::target::{GetExecutionContext, TargetMessage};
 use crate::handler::target_message_future::TargetMessageFuture;
@@ -237,6 +237,21 @@ impl PageInner {
             self.sender.clone(),
             self.command_future(cmd)?,
             self.request_timeout,
+        ))
+    }
+
+    pub(crate) fn navigate_http_future(
+        &self,
+        params: NavigateParams,
+    ) -> Result<HttpFuture<NavigateParams>> {
+        let url = params.url.clone();
+        let cmd = self.command_future(params)?;
+        Ok(HttpFuture::with_failure_check(
+            self.sender.clone(),
+            cmd,
+            self.request_timeout,
+            navigate_error_text,
+            Some(url),
         ))
     }
 

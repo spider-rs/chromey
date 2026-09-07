@@ -380,6 +380,22 @@ impl FrameManager {
         }
     }
 
+    /// Drop a failed navigation so it cannot time out or hold up the next goto.
+    pub fn abandon_navigation(&mut self, id: NavigationId) {
+        if self
+            .navigation
+            .as_ref()
+            .is_some_and(|(nav, _)| nav.id == id)
+        {
+            self.navigation = None;
+        }
+        // The retain is defensive rather than exercised: under `Handler::run()`
+        // the navigation is always promoted into `self.navigation` before the ack
+        // lands. A driver that submits differently would leave it queued, and a
+        // stale queued navigation would block the next goto's promotion.
+        self.pending_navigations.retain(|(req, _)| req.id != id);
+    }
+
     pub fn poll(&mut self, now: Instant) -> Option<FrameEvent> {
         // check if the navigation completed
         if let Some((watcher, deadline)) = self.navigation.take() {

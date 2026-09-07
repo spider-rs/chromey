@@ -328,7 +328,23 @@ impl SessionTask {
 
     fn on_navigation_response(&mut self, nav_id: NavigationId, resp: Response) {
         if let Some(mut nav) = self.navigations.remove(&nav_id) {
-            if nav.is_navigated() {
+            // Same terminal-failure release as `Handler::on_navigation_response`.
+            // A CDP server that acks a failed navigation with `errorText` and no
+            // lifecycle events would otherwise park this ack until the request
+            // timeout, and leaving the sibling implementation unfixed is how the
+            // hang survives a feature flag.
+            let failed = resp
+                .result
+                .as_ref()
+                .and_then(|result| result.get("errorText"))
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|err| {
+                    !err.is_empty() && !crate::handler::httpfuture::navigation_continues(err)
+                });
+            if failed {
+                self.target.frame_manager_mut().abandon_navigation(nav_id);
+                let _ = nav.into_tx().send(Ok(resp));
+            } else if nav.is_navigated() {
                 let _ = nav.into_tx().send(Ok(resp));
             } else {
                 nav.set_response(resp);
