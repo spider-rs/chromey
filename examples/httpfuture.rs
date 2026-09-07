@@ -22,7 +22,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let page = browser.new_page(target_url).await?;
 
     let _response1 = page
-        .http_future(NavigateParams {
+        .navigate_http_future(NavigateParams {
             url: target_url.to_string(),
             transition_type: None,
             frame_id: None,

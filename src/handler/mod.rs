@@ -26,6 +26,7 @@ use crate::error::{CdpError, Result};
 use crate::handler::browser::BrowserContext;
 use crate::handler::frame::FrameRequestedNavigation;
 use crate::handler::frame::{NavigationError, NavigationId, NavigationOk};
+use crate::handler::httpfuture::navigation_continues;
 use crate::handler::job::PeriodicJob;
 use crate::handler::session::Session;
 use crate::handler::target::TargetEvent;
@@ -205,13 +206,32 @@ impl Handler {
     fn on_navigation_response(&mut self, id: NavigationId, resp: Response) {
         if let Some(nav) = self.navigations.remove(&id) {
             match nav {
-                NavigationRequest::Navigate(mut nav) => {
-                    if nav.navigated {
+                NavigationRequest::Navigate(target_id, mut nav) => {
+                    // Read the field directly rather than decoding NavigateReturns:
+                    // cheaper, and a malformed sibling field cannot make the whole
+                    // decode fail. A silent decode failure here would park the ack
+                    // again, which is the hang this branch exists to remove.
+                    // The empty check is load-bearing and duplicated in HttpFuture's
+                    // probe: both paths must treat an empty errorText as absent.
+                    let failed = resp
+                        .result
+                        .as_ref()
+                        .and_then(|result| result.get("errorText"))
+                        .and_then(serde_json::Value::as_str)
+                        .is_some_and(|err| !err.is_empty() && !navigation_continues(err));
+                    if failed {
+                        // Terminal failures may never emit lifecycle events. Release
+                        // the ack and remove the watcher before another goto is queued.
+                        if let Some(target) = self.targets.get_mut(&target_id) {
+                            target.frame_manager_mut().abandon_navigation(id);
+                        }
+                        let _ = nav.tx.send(Ok(resp));
+                    } else if nav.navigated {
                         let _ = nav.tx.send(Ok(resp));
                     } else {
                         nav.set_response(resp);
                         self.navigations
-                            .insert(id, NavigationRequest::Navigate(nav));
+                            .insert(id, NavigationRequest::Navigate(target_id, nav));
                     }
                 }
             }
@@ -225,13 +245,13 @@ impl Handler {
                 let id = *ok.navigation_id();
                 if let Some(nav) = self.navigations.remove(&id) {
                     match nav {
-                        NavigationRequest::Navigate(mut nav) => {
+                        NavigationRequest::Navigate(target_id, mut nav) => {
                             if let Some(resp) = nav.response.take() {
                                 let _ = nav.tx.send(Ok(resp));
                             } else {
                                 nav.set_navigated();
                                 self.navigations
-                                    .insert(id, NavigationRequest::Navigate(nav));
+                                    .insert(id, NavigationRequest::Navigate(target_id, nav));
                             }
                         }
                     }
@@ -240,7 +260,7 @@ impl Handler {
             Err(err) => {
                 if let Some(nav) = self.navigations.remove(err.navigation_id()) {
                     match nav {
-                        NavigationRequest::Navigate(nav) => {
+                        NavigationRequest::Navigate(_, nav) => {
                             let _ = nav.tx.send(Err(err.into()));
                         }
                     }
@@ -411,7 +431,10 @@ impl Handler {
 
             self.navigations.insert(
                 id,
-                NavigationRequest::Navigate(NavigationInProgress::new(tx)),
+                NavigationRequest::Navigate(
+                    target.target_id().clone(),
+                    NavigationInProgress::new(tx),
+                ),
             );
         } else {
             let _ = self.submit_external_command(msg, now);
@@ -687,7 +710,7 @@ impl Handler {
                     PendingRequest::Navigate(nav) => {
                         if let Some(nav) = self.navigations.remove(&nav) {
                             match nav {
-                                NavigationRequest::Navigate(nav) => {
+                                NavigationRequest::Navigate(_, nav) => {
                                     let _ = nav.tx.send(Err(CdpError::Timeout));
                                 }
                             }
@@ -871,7 +894,10 @@ impl Handler {
                                     }
                                     self.navigations.insert(
                                         nav_id,
-                                        NavigationRequest::Navigate(NavigationInProgress::new(tx)),
+                                        NavigationRequest::Navigate(
+                                            target.target_id().clone(),
+                                            NavigationInProgress::new(tx),
+                                        ),
                                     );
                                 } else if let Ok(call_id) = ws_submit!(
                                     msg.method.clone(),
@@ -1632,7 +1658,7 @@ impl<T> NavigationInProgress<T> {
 #[derive(Debug)]
 enum NavigationRequest {
     /// Represents a simple `NavigateParams` ("Page.navigate")
-    Navigate(NavigationInProgress<Result<Response>>),
+    Navigate(TargetId, NavigationInProgress<Result<Response>>),
     // TODO are there more?
 }
 

@@ -10,7 +10,7 @@
 #![allow(dead_code)]
 
 use std::net::SocketAddr;
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use futures_util::{SinkExt, StreamExt};
@@ -31,6 +31,14 @@ struct MockShared {
     /// CDP method names whose requests the mock should silently swallow
     /// (no response). Lets eviction tests exercise the timeout path.
     swallow: Mutex<hashbrown::HashSet<String>>,
+    navigate_error: Mutex<Option<NavigateError>>,
+    injected_loader: AtomicU64,
+}
+
+#[derive(Clone)]
+struct NavigateError {
+    text: String,
+    commits: bool,
 }
 
 /// Handle to a running mock server. Drop it to shut the server down.
@@ -91,6 +99,54 @@ impl CdpMock {
     /// handler's per-session eviction path.
     pub async fn swallow_method(&self, method: &str) {
         self.shared.swallow.lock().await.insert(method.to_string());
+    }
+
+    /// Return this `errorText` in subsequent navigate acks without completion events.
+    pub async fn fail_navigate(&self, error_text: &str) {
+        *self.shared.navigate_error.lock().await = Some(NavigateError {
+            text: error_text.to_string(),
+            commits: false,
+        });
+    }
+
+    /// Emit the full navigation burst even when the ack carries `errorText`.
+    pub async fn commit_failed_navigation(&self) {
+        if let Some(error) = self.shared.navigate_error.lock().await.as_mut() {
+            error.commits = true;
+        }
+    }
+
+    /// Restore successful navigate acks and completion events.
+    pub async fn clear_fail_navigate(&self) {
+        *self.shared.navigate_error.lock().await = None;
+    }
+
+    /// Emit a complete replacement navigation on every active connection.
+    pub async fn emit_navigation(&self, session_id: &str, url: &str) {
+        let frame_id = format!("frame-{session_id}");
+        let n = self.shared.injected_loader.fetch_add(1, Ordering::Relaxed);
+        let loader_id = format!("loader-injected-{n}");
+        let burst = navigation_burst(session_id, &frame_id, &loader_id, url);
+        let conns = self.shared.connections.lock().await;
+        for tx in conns.iter() {
+            for payload in &burst {
+                let _ = tx.send(payload.clone()).await;
+            }
+        }
+    }
+
+    /// Remove the main frame without completing its navigation lifecycle.
+    pub async fn detach_main_frame(&self, session_id: &str) {
+        let payload = serde_json::json!({
+            "method": "Page.frameDetached",
+            "sessionId": session_id,
+            "params": { "frameId": format!("frame-{session_id}"), "reason": "remove" }
+        })
+        .to_string();
+        let conns = self.shared.connections.lock().await;
+        for tx in conns.iter() {
+            let _ = tx.send(payload.clone()).await;
+        }
     }
 
     /// Force-emit a `Target.detachedFromTarget` event for `session_id` on
@@ -201,7 +257,15 @@ async fn handle_connection(stream: tokio::net::TcpStream, shared: Arc<MockShared
                     // Test asked us to drop this method — emit nothing.
                     continue;
                 }
-                let outbox = handle_method(&mut state, id, &method, session_id.as_deref(), &params);
+                let navigate_error = shared.navigate_error.lock().await.clone();
+                let outbox = handle_method(
+                    &mut state,
+                    id,
+                    &method,
+                    session_id.as_deref(),
+                    &params,
+                    navigate_error.as_ref(),
+                );
                 for line in outbox {
                     if sink.send(WsMessage::Text(line.into())).await.is_err() {
                         return;
@@ -222,6 +286,7 @@ fn handle_method(
     method: &str,
     session_id: Option<&str>,
     params: &serde_json::Value,
+    navigate_error: Option<&NavigateError>,
 ) -> Vec<String> {
     let mut out = Vec::with_capacity(2);
 
@@ -267,10 +332,10 @@ fn handle_method(
         }
 
         "Page.navigate" => {
-            let (frame_id, prev_loader) = session_id
+            let frame_id = session_id
                 .and_then(|s| state.sessions.get(s))
-                .map(|(_t, f, l)| (f.clone(), l.clone()))
-                .unwrap_or_else(|| ("frame-unknown".into(), "loader-unknown".into()));
+                .map(|(_t, f, _l)| f.clone())
+                .unwrap_or_else(|| "frame-unknown".into());
             state.next_loader += 1;
             let new_loader = format!("loader-{:08x}", state.next_loader);
             // Update the session record so subsequent commands see the new loader.
@@ -284,39 +349,26 @@ fn handle_method(
                 .and_then(|v| v.as_str())
                 .unwrap_or("about:blank")
                 .to_string();
-            out.push(json_response(
-                id,
-                serde_json::json!({
-                    "frameId": frame_id,
-                    "loaderId": new_loader,
-                }),
-            ));
-            if let Some(sid) = session_id {
-                // Frame lifecycle for the new navigation: started → init →
-                // DOMContentLoaded → load → idle → stopped. Each of these
-                // events drives `frame_manager.on_*` so the navigation
-                // watcher's `expected_lifecycle` set fills up and the
-                // navigation completes.
-                out.push(frame_started_loading(sid, &frame_id));
-                out.push(frame_navigated(sid, &frame_id, &url, &new_loader));
-                out.push(lifecycle_event(sid, &frame_id, &new_loader, "init"));
-                out.push(lifecycle_event(
-                    sid,
-                    &frame_id,
-                    &new_loader,
-                    "DOMContentLoaded",
-                ));
-                out.push(lifecycle_event(sid, &frame_id, &new_loader, "load"));
-                out.push(lifecycle_event(
-                    sid,
-                    &frame_id,
-                    &new_loader,
-                    "networkAlmostIdle",
-                ));
-                out.push(lifecycle_event(sid, &frame_id, &new_loader, "networkIdle"));
-                out.push(frame_stopped_loading(sid, &frame_id));
+            let mut result = serde_json::json!({
+                "frameId": frame_id,
+                "loaderId": new_loader,
+            });
+            if let Some(error) = navigate_error {
+                result["errorText"] = serde_json::json!(error.text);
             }
-            let _ = prev_loader;
+            if navigate_error.is_some_and(|error| !error.commits) {
+                if let Some(sid) = session_id {
+                    out.push(frame_started_loading(sid, &frame_id));
+                }
+                out.push(json_response(id, result));
+            } else if let Some(sid) = session_id {
+                out = navigation_burst(sid, &frame_id, &new_loader, &url);
+                // Chrome starts loading and sends the document request before
+                // the ack, clearing any stale navigation state first.
+                out.insert(2, json_response(id, result));
+            } else {
+                out.push(json_response(id, result));
+            }
         }
 
         "Page.getFrameTree" => {
@@ -361,6 +413,83 @@ fn handle_method(
 // ---------------------------------------------------------------------------
 //  Wire helpers
 // ---------------------------------------------------------------------------
+
+fn navigation_burst(session_id: &str, frame_id: &str, loader_id: &str, url: &str) -> Vec<String> {
+    let mut out = vec![
+        frame_started_loading(session_id, frame_id),
+        serde_json::json!({
+            "method": "Network.requestWillBeSent",
+            "sessionId": session_id,
+            "params": {
+                "requestId": loader_id,
+                "loaderId": loader_id,
+                "documentURL": url,
+                "frameId": frame_id,
+                "type": "Document",
+                "request": {
+                    "url": url,
+                    "method": "GET",
+                    "headers": {},
+                    "initialPriority": "VeryHigh",
+                    "referrerPolicy": "no-referrer-when-downgrade"
+                },
+                "timestamp": 0.0,
+                "wallTime": 0.0,
+                "initiator": { "type": "other" },
+                "redirectHasExtraInfo": false
+            }
+        })
+        .to_string(),
+        serde_json::json!({
+            "method": "Network.responseReceived",
+            "sessionId": session_id,
+            "params": {
+                "requestId": loader_id,
+                "loaderId": loader_id,
+                "frameId": frame_id,
+                "type": "Document",
+                "timestamp": 0.0,
+                "hasExtraInfo": false,
+                "response": {
+                    "url": url,
+                    "status": 200,
+                    "statusText": "OK",
+                    "headers": { "content-type": "text/html" },
+                    "mimeType": "text/html",
+                    "charset": "utf-8",
+                    "connectionReused": false,
+                    "connectionId": 1.0,
+                    "encodedDataLength": 0.0,
+                    "securityState": "secure",
+                    "protocol": "http/1.1"
+                }
+            }
+        })
+        .to_string(),
+        serde_json::json!({
+            "method": "Network.loadingFinished",
+            "sessionId": session_id,
+            "params": {
+                "requestId": loader_id,
+                "timestamp": 0.0,
+                "encodedDataLength": 0.0
+            }
+        })
+        .to_string(),
+        frame_navigated(session_id, frame_id, url, loader_id),
+    ];
+    for name in [
+        "init",
+        "DOMContentLoaded",
+        "load",
+        "networkAlmostIdle",
+        "networkIdle",
+    ] {
+        out.push(lifecycle_event(session_id, frame_id, loader_id, name));
+    }
+    out.push(frame_stopped_loading(session_id, frame_id));
+    out
+}
 
 fn empty_response(id: u64) -> String {
     format!(r#"{{"id":{},"result":{{}}}}"#, id)
