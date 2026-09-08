@@ -12,7 +12,10 @@
 //! reach through a struct for an `Option<Instant>` and fold to the minimum.
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use futures_util::task::noop_waker;
 use hashbrown::HashMap;
+use std::future::Future;
+use std::task::Context;
 use std::time::{Duration, Instant};
 
 /// Stand-in for `Target`, holding a frame manager with an optional deadline.
@@ -162,11 +165,41 @@ fn bench_dirty_drain(c: &mut Criterion) {
     });
 }
 
+/// What a poll costs while a navigation is actually in flight: the deadline is
+/// armed, so the driver polls the `Sleep` as well as reading the cache. The
+/// timer is far enough out that it never fires, which is the case the loop
+/// spends all of its polls in; the poll still re-checks the timer entry and
+/// keeps its waker current. The idle case is not measured because it never
+/// reaches here: `pending_navigation_deadline` returns `None` and the arm is
+/// skipped entirely.
+fn bench_armed_sleep_poll(c: &mut Criterion) {
+    let rt = match tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+    {
+        Ok(rt) => rt,
+        Err(_) => return,
+    };
+    let _guard = rt.enter();
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(3600);
+    let mut sleep = Box::pin(tokio::time::sleep_until(deadline));
+    let waker = noop_waker();
+    let mut cx = Context::from_waker(&waker);
+    // Register with the timer wheel the way the first armed poll does.
+    let _ = sleep.as_mut().poll(&mut cx);
+
+    c.bench_function("nav_deadline/armed_sleep_poll", |b| {
+        b.iter(|| black_box(sleep.as_mut().poll(black_box(&mut cx)).is_ready()));
+    });
+}
+
 criterion_group!(
     benches,
     bench_scan,
     bench_scan_saturated,
     bench_cached,
-    bench_dirty_drain
+    bench_dirty_drain,
+    bench_armed_sleep_poll
 );
 criterion_main!(benches);

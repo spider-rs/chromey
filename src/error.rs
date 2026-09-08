@@ -125,11 +125,14 @@ pub struct DeadlineExceeded {
 }
 
 impl DeadlineExceeded {
-    /// Creates a new instance
+    /// Creates a new instance from the two timestamps, as recorded.
     ///
-    /// panics if `now > deadline`
+    /// The pair is stored verbatim and never validated, so a caller that has
+    /// not actually passed the deadline still gets a value back. Callers build
+    /// this only on the branch where the deadline already elapsed; keeping the
+    /// constructor infallible means a clock that reads slightly backwards
+    /// yields a harmless timeout error instead of taking down the handler.
     pub fn new(now: Instant, deadline: Instant) -> Self {
-        // assert!(now > deadline);
         Self { deadline, now }
     }
 }

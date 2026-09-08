@@ -35,13 +35,14 @@ pub(crate) fn to_command_response<T: Command>(
 /// Messages used internally to communicate with the connection, which is
 /// executed in the the background task.
 #[derive(Debug, Serialize)]
+#[non_exhaustive]
 pub struct CommandMessage<T = Result<Response>> {
     pub method: MethodId,
     #[serde(rename = "sessionId", skip_serializing_if = "Option::is_none")]
     pub session_id: Option<SessionId>,
     pub params: serde_json::Value,
     #[serde(skip)]
-    pub navigation_timeout: Option<Duration>,
+    pub(crate) navigation_timeout: Option<Duration>,
     #[serde(skip_serializing)]
     pub sender: OneshotSender<T>,
 }
@@ -55,6 +56,13 @@ impl<T> CommandMessage<T> {
             navigation_timeout: None,
             sender,
         })
+    }
+
+    /// The navigation deadline the handler should hold this command's ack to,
+    /// if one was armed. Read-only: only the command future that owns the
+    /// message sets it.
+    pub fn navigation_timeout(&self) -> Option<Duration> {
+        self.navigation_timeout
     }
 
     /// Whether this command is a navigation

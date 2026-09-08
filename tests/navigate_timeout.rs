@@ -419,7 +419,10 @@ mod channels {
             panic!("expected navigate command");
         };
         assert!(command.is_navigation());
-        assert_eq!(command.navigation_timeout, Some(Duration::from_secs(3)));
+        assert_eq!(
+            command.navigation_timeout(),
+            Some(Duration::from_secs(3))
+        );
         assert!(serde_json::to_value(&command)
             .unwrap()
             .get("navigation_timeout")
