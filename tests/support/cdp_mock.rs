@@ -32,6 +32,10 @@ struct MockShared {
     /// (no response). Lets eviction tests exercise the timeout path.
     swallow: Mutex<hashbrown::HashSet<String>>,
     navigate_error: Mutex<Option<NavigateError>>,
+    /// Raw `params` object of every `Page.navigate` request the mock received,
+    /// exactly as it arrived on the wire. Tests read this to assert which keys
+    /// the client actually serialized.
+    navigate_params: Mutex<Vec<serde_json::Value>>,
     injected_loader: AtomicU64,
 }
 
@@ -114,6 +118,17 @@ impl CdpMock {
         if let Some(error) = self.shared.navigate_error.lock().await.as_mut() {
             error.commits = true;
         }
+    }
+
+    /// Every `Page.navigate` params object received so far, in arrival order.
+    pub async fn navigate_params(&self) -> Vec<serde_json::Value> {
+        self.shared.navigate_params.lock().await.clone()
+    }
+
+    /// Drop the recorded `Page.navigate` params, so a test can ignore the
+    /// navigations `Browser::new_page` performs during setup.
+    pub async fn clear_navigate_params(&self) {
+        self.shared.navigate_params.lock().await.clear();
     }
 
     /// Restore successful navigate acks and completion events.
@@ -252,6 +267,10 @@ async fn handle_connection(stream: tokio::net::TcpStream, shared: Arc<MockShared
                     .and_then(|v| v.as_str())
                     .map(str::to_string);
                 let params = req.get("params").cloned().unwrap_or(serde_json::Value::Null);
+
+                if method == "Page.navigate" {
+                    shared.navigate_params.lock().await.push(params.clone());
+                }
 
                 if shared.swallow.lock().await.contains(&method) {
                     // Test asked us to drop this method — emit nothing.
