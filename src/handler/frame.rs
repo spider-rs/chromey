@@ -396,6 +396,10 @@ impl FrameManager {
         self.pending_navigations.retain(|(req, _)| req.id != id);
     }
 
+    pub fn next_navigation_deadline(&self) -> Option<Instant> {
+        self.navigation.as_ref().map(|(_, deadline)| *deadline)
+    }
+
     pub fn poll(&mut self, now: Instant) -> Option<FrameEvent> {
         // check if the navigation completed
         if let Some((watcher, deadline)) = self.navigation.take() {

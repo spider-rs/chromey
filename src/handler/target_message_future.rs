@@ -114,6 +114,12 @@ impl<T> TargetMessageFuture<T> {
         )
     }
 
+    /// Replace the timeout used by the initial delay and by `reset_deadline`.
+    pub(crate) fn set_timeout(&mut self, timeout: std::time::Duration) {
+        self.request_timeout = timeout;
+        self.delay = tokio::time::sleep(timeout);
+    }
+
     /// Reset the internal timer deadline to `now + request_timeout`.
     /// Used by `HttpFuture` to start the navigation timeout only after
     /// the command phase completes, not from future creation time.

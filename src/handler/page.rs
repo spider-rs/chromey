@@ -1,5 +1,6 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use chromiumoxide_cdp::cdp::browser_protocol::accessibility::{
     GetFullAxTreeParamsBuilder, GetFullAxTreeReturns, GetPartialAxTreeParamsBuilder,
@@ -36,7 +37,7 @@ use crate::cmd::{to_command_response, CommandMessage};
 use crate::error::{CdpError, Result};
 use crate::handler::commandfuture::CommandFuture;
 use crate::handler::domworld::DOMWorldKind;
-use crate::handler::httpfuture::{navigate_error_text, HttpFuture};
+use crate::handler::httpfuture::{navigate_committed, navigate_error_text, HttpFuture};
 use crate::handler::sender::PageSender;
 use crate::handler::target::{GetExecutionContext, TargetMessage};
 use crate::handler::target_message_future::TargetMessageFuture;
@@ -252,7 +253,24 @@ impl PageInner {
             self.request_timeout,
             navigate_error_text,
             Some(url),
-        ))
+        )
+        .with_commit_check(navigate_committed))
+    }
+
+    /// Same as [`Self::navigate_http_future`] with a client-side navigation
+    /// deadline. A zero `navigation_timeout` opts out, leaving the wait bounded
+    /// by `request_timeout` alone.
+    pub(crate) fn navigate_http_future_with_timeout(
+        &self,
+        params: NavigateParams,
+        navigation_timeout: Duration,
+    ) -> Result<HttpFuture<NavigateParams>> {
+        let future = self.navigate_http_future(params)?;
+        Ok(if navigation_timeout.is_zero() {
+            future
+        } else {
+            future.with_navigation_timeout(navigation_timeout)
+        })
     }
 
     /// The identifier of this page's target

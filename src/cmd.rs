@@ -40,6 +40,8 @@ pub struct CommandMessage<T = Result<Response>> {
     #[serde(rename = "sessionId", skip_serializing_if = "Option::is_none")]
     pub session_id: Option<SessionId>,
     pub params: serde_json::Value,
+    #[serde(skip)]
+    pub navigation_timeout: Option<Duration>,
     #[serde(skip_serializing)]
     pub sender: OneshotSender<T>,
 }
@@ -50,6 +52,7 @@ impl<T> CommandMessage<T> {
             method: cmd.identifier(),
             session_id: None,
             params: serde_json::to_value(cmd)?,
+            navigation_timeout: None,
             sender,
         })
     }
@@ -68,6 +71,7 @@ impl<T> CommandMessage<T> {
             method: cmd.identifier(),
             session_id,
             params: serde_json::to_value(cmd)?,
+            navigation_timeout: None,
             sender,
         })
     }

@@ -10,7 +10,7 @@
 #![allow(dead_code)]
 
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
 use futures_util::{SinkExt, StreamExt};
@@ -32,6 +32,8 @@ struct MockShared {
     /// (no response). Lets eviction tests exercise the timeout path.
     swallow: Mutex<hashbrown::HashSet<String>>,
     navigate_error: Mutex<Option<NavigateError>>,
+    navigate_requests: Mutex<Vec<serde_json::Value>>,
+    withhold_load: AtomicBool,
     injected_loader: AtomicU64,
 }
 
@@ -92,6 +94,27 @@ impl CdpMock {
 
     pub fn addr(&self) -> SocketAddr {
         self.addr
+    }
+
+    pub async fn navigate_requests(&self) -> Vec<serde_json::Value> {
+        self.shared.navigate_requests.lock().await.clone()
+    }
+
+    pub async fn last_navigate_params(&self) -> Option<serde_json::Value> {
+        self.shared
+            .navigate_requests
+            .lock()
+            .await
+            .last()
+            .and_then(|request| request.get("params").cloned())
+    }
+
+    pub fn withhold_load(&self) {
+        self.shared.withhold_load.store(true, Ordering::Relaxed);
+    }
+
+    pub fn release_load(&self) {
+        self.shared.withhold_load.store(false, Ordering::Relaxed);
     }
 
     /// Swallow any subsequent request whose `method` matches — the mock
@@ -253,6 +276,10 @@ async fn handle_connection(stream: tokio::net::TcpStream, shared: Arc<MockShared
                     .map(str::to_string);
                 let params = req.get("params").cloned().unwrap_or(serde_json::Value::Null);
 
+                if method == "Page.navigate" {
+                    shared.navigate_requests.lock().await.push(req.clone());
+                }
+
                 if shared.swallow.lock().await.contains(&method) {
                     // Test asked us to drop this method — emit nothing.
                     continue;
@@ -265,6 +292,7 @@ async fn handle_connection(stream: tokio::net::TcpStream, shared: Arc<MockShared
                     session_id.as_deref(),
                     &params,
                     navigate_error.as_ref(),
+                    shared.withhold_load.load(Ordering::Relaxed),
                 );
                 for line in outbox {
                     if sink.send(WsMessage::Text(line.into())).await.is_err() {
@@ -287,6 +315,7 @@ fn handle_method(
     session_id: Option<&str>,
     params: &serde_json::Value,
     navigate_error: Option<&NavigateError>,
+    withhold_load: bool,
 ) -> Vec<String> {
     let mut out = Vec::with_capacity(2);
 
@@ -362,7 +391,7 @@ fn handle_method(
                 }
                 out.push(json_response(id, result));
             } else if let Some(sid) = session_id {
-                out = navigation_burst(sid, &frame_id, &new_loader, &url);
+                out = navigation_burst_with(sid, &frame_id, &new_loader, &url, !withhold_load);
                 // Chrome starts loading and sends the document request before
                 // the ack, clearing any stale navigation state first.
                 out.insert(2, json_response(id, result));
@@ -415,6 +444,16 @@ fn handle_method(
 // ---------------------------------------------------------------------------
 
 fn navigation_burst(session_id: &str, frame_id: &str, loader_id: &str, url: &str) -> Vec<String> {
+    navigation_burst_with(session_id, frame_id, loader_id, url, true)
+}
+
+fn navigation_burst_with(
+    session_id: &str,
+    frame_id: &str,
+    loader_id: &str,
+    url: &str,
+    include_load: bool,
+) -> Vec<String> {
     let mut out = vec![
         frame_started_loading(session_id, frame_id),
         serde_json::json!({
@@ -486,8 +525,13 @@ fn navigation_burst(session_id: &str, frame_id: &str, loader_id: &str, url: &str
         "networkIdle",
     ] {
         out.push(lifecycle_event(session_id, frame_id, loader_id, name));
+        if !include_load && name == "DOMContentLoaded" {
+            break;
+        }
     }
-    out.push(frame_stopped_loading(session_id, frame_id));
+    if include_load {
+        out.push(frame_stopped_loading(session_id, frame_id));
+    }
     out
 }
 
