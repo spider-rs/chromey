@@ -51,7 +51,7 @@ memchr = "2"
 sonic-rs = { version = "0.5", optional = true, features = ["utf8_lossy"] }
 spider_network_blocker = "0"
 spider_chromiumoxide_types = { path = "types", version = "0.7.6" }
-spider_chromiumoxide_cdp = { path = "cdp", version = "0.7" }
+spider_chromiumoxide_cdp = { path = "cdp", version = "0.8" }
 spider_chromiumoxide_fetcher = { path = "fetcher", version = "0.8", default-features = false, optional = true }
 http-cache-semantics = { version = "3", optional = true }
 http-cache = { version = "1.0.0-alpha.5", optional = true, default-features = false, features = ["url-standard"] }
