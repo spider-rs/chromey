@@ -1,5 +1,6 @@
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 
 use chromiumoxide_cdp::cdp::browser_protocol::accessibility::{
     GetFullAxTreeReturns, GetPartialAxTreeReturns,
@@ -418,6 +419,38 @@ impl Page {
         params: impl Into<NavigateParams>,
     ) -> Result<HttpFuture<NavigateParams>> {
         self.inner.navigate_http_future(params.into())
+    }
+
+    /// Same as [`Self::navigate_http_future`] with a navigation deadline. Stamps
+    /// `timeout` (milliseconds) onto the `Page.navigate` params for servers that
+    /// honour it, such as navi, and applies the same value as chromey's own
+    /// deadline. Overrides any `timeout` already on `params`.
+    ///
+    /// Let `cap` be `min(navigation_timeout, request_timeout)`. `cap` is spent in
+    /// two sequential phases, so the worst case wall clock is `2 * cap`, not `cap`:
+    ///
+    /// 1. The frame watcher waits `cap` for the navigate ack to be released. A
+    ///    server that holds the ack past the deadline gets the ack released with
+    ///    the document it had committed by then.
+    /// 2. The post-ack lifecycle wait is then reset to a fresh `cap`.
+    ///
+    /// Phase 2 is normally instantaneous, because a committed frame has already
+    /// reached `DOMContentLoaded` and the wait resolves on the spot. It costs a
+    /// second `cap` only when the server withholds `DOMContentLoaded` as well, and
+    /// that case ends in `Err(CdpError::Timeout)` with [`HttpFuture::committed`]
+    /// left as the only signal that a document is in hand. Size a leg budget
+    /// against `2 * cap` if you cannot rule that out.
+    ///
+    /// A zero or negative `timeout` opts out of the local deadline entirely (the
+    /// wait reverts to `request_timeout`) but is still sent on the wire.
+    pub fn navigate_http_future_with_timeout(
+        &self,
+        params: impl Into<NavigateParams>,
+        navigation_timeout: Duration,
+    ) -> Result<HttpFuture<NavigateParams>> {
+        let mut params = params.into();
+        params.timeout = Some(i64::try_from(navigation_timeout.as_millis()).unwrap_or(i64::MAX));
+        self.inner.navigate_http_future(params)
     }
 
     /// Adds an event listener to the `Target` and returns the receiver part as

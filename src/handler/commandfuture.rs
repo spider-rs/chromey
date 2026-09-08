@@ -31,6 +31,14 @@ pin_project! {
 }
 
 impl<T: Command> CommandFuture<T> {
+    /// Attach a navigation deadline to the not-yet-sent `Page.navigate` message.
+    /// No-op once the message has been sent.
+    pub(crate) fn set_navigation_timeout(&mut self, timeout: std::time::Duration) {
+        if let Some(TargetMessage::Command(cmd)) = self.message.as_mut() {
+            cmd.navigation_timeout = Some(timeout);
+        }
+    }
+
     /// A new command future.
     pub fn new(
         cmd: T,

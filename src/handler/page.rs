@@ -1,5 +1,6 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use chromiumoxide_cdp::cdp::browser_protocol::accessibility::{
     GetFullAxTreeParamsBuilder, GetFullAxTreeReturns, GetPartialAxTreeParamsBuilder,
@@ -36,7 +37,7 @@ use crate::cmd::{to_command_response, CommandMessage};
 use crate::error::{CdpError, Result};
 use crate::handler::commandfuture::CommandFuture;
 use crate::handler::domworld::DOMWorldKind;
-use crate::handler::httpfuture::{navigate_error_text, HttpFuture};
+use crate::handler::httpfuture::{navigate_committed, navigate_error_text, HttpFuture};
 use crate::handler::sender::PageSender;
 use crate::handler::target::{GetExecutionContext, TargetMessage};
 use crate::handler::target_message_future::TargetMessageFuture;
@@ -232,6 +233,7 @@ impl PageInner {
 
     /// This creates HTTP future with navigation and responds with the final
     /// http response when the page is loaded
+    /// This generic path does not infer a navigation timeout from command params.
     pub(crate) fn http_future<T: Command>(&self, cmd: T) -> Result<HttpFuture<T>> {
         Ok(HttpFuture::new(
             self.sender.clone(),
@@ -245,14 +247,20 @@ impl PageInner {
         params: NavigateParams,
     ) -> Result<HttpFuture<NavigateParams>> {
         let url = params.url.clone();
+        let navigation_timeout = params.timeout.filter(|ms| *ms > 0);
         let cmd = self.command_future(params)?;
-        Ok(HttpFuture::with_failure_check(
+        let mut future = HttpFuture::with_failure_check(
             self.sender.clone(),
             cmd,
             self.request_timeout,
             navigate_error_text,
             Some(url),
-        ))
+        )
+        .with_commit_check(navigate_committed);
+        if let Some(ms) = navigation_timeout {
+            future = future.with_navigation_timeout(Duration::from_millis(ms as u64));
+        }
+        Ok(future)
     }
 
     /// The identifier of this page's target

@@ -9,6 +9,7 @@ use fnv::FnvHashMap;
 use futures_util::Stream;
 use hashbrown::{HashMap, HashSet};
 use spider_network_blocker::intercept_manager::NetworkInterceptManager;
+use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
@@ -103,6 +104,8 @@ pub struct Handler {
     /// Optional notify for waking `Handler::run()`'s `tokio::select!` loop
     /// when a page sends a message.  `None` when using the `Stream` API.
     page_wake: Option<Arc<Notify>>,
+    /// Wakes the stream driver when the next navigation deadline expires.
+    nav_deadline: Option<Pin<Box<tokio::time::Sleep>>>,
 }
 
 lazy_static::lazy_static! {
@@ -170,6 +173,7 @@ impl Handler {
             budget_exhausted: false,
             attached_targets: Default::default(),
             page_wake: None,
+            nav_deadline: None,
         }
     }
 
@@ -260,8 +264,17 @@ impl Handler {
             Err(err) => {
                 if let Some(nav) = self.navigations.remove(err.navigation_id()) {
                     match nav {
-                        NavigationRequest::Navigate(_, nav) => {
-                            let _ = nav.tx.send(Err(err.into()));
+                        NavigationRequest::Navigate(_, mut nav) => {
+                            let release = matches!(err, NavigationError::Timeout { .. })
+                                && nav.releases_ack_on_timeout();
+                            match (release, nav.take_response()) {
+                                (true, Some(resp)) => {
+                                    let _ = nav.tx.send(Ok(resp));
+                                }
+                                _ => {
+                                    let _ = nav.tx.send(Err(err.into()));
+                                }
+                            }
                         }
                     }
                 }
@@ -420,25 +433,36 @@ impl Handler {
     /// Process a message received by the target's page via channel
     fn on_target_message(&mut self, target: &mut Target, msg: CommandMessage, now: Instant) {
         if msg.is_navigation() {
+            let navigation_timeout = msg.navigation_timeout;
             let (req, tx) = msg.split();
             let id = self.next_navigation_id();
 
             target.goto(FrameRequestedNavigation::new(
                 id,
                 req,
-                self.config.request_timeout,
+                navigation_timeout
+                    .unwrap_or(self.config.request_timeout)
+                    .min(self.config.request_timeout),
             ));
 
             self.navigations.insert(
                 id,
                 NavigationRequest::Navigate(
                     target.target_id().clone(),
-                    NavigationInProgress::new(tx),
+                    NavigationInProgress::new(tx)
+                        .with_release_ack_on_timeout(navigation_timeout.is_some()),
                 ),
             );
         } else {
             let _ = self.submit_external_command(msg, now);
         }
+    }
+
+    pub(crate) fn next_navigation_deadline(&self) -> Option<Instant> {
+        self.targets
+            .values()
+            .filter_map(|target| target.frame_manager().next_navigation_deadline())
+            .min()
     }
 
     /// An identifier for queued `NavigationRequest`s.
@@ -877,12 +901,15 @@ impl Handler {
                             }
                             TargetEvent::Command(msg) => {
                                 if msg.is_navigation() {
+                                    let navigation_timeout = msg.navigation_timeout;
                                     let (req, tx) = msg.split();
                                     let nav_id = self.next_navigation_id();
                                     target.goto(FrameRequestedNavigation::new(
                                         nav_id,
                                         req.clone(),
-                                        self.config.request_timeout,
+                                        navigation_timeout
+                                            .unwrap_or(self.config.request_timeout)
+                                            .min(self.config.request_timeout),
                                     ));
                                     if let Ok(call_id) =
                                         ws_submit!(req.method.clone(), req.session_id, req.params)
@@ -896,7 +923,10 @@ impl Handler {
                                         nav_id,
                                         NavigationRequest::Navigate(
                                             target.target_id().clone(),
-                                            NavigationInProgress::new(tx),
+                                            NavigationInProgress::new(tx)
+                                                .with_release_ack_on_timeout(
+                                                    navigation_timeout.is_some(),
+                                                ),
                                         ),
                                     );
                                 } else if let Ok(call_id) = ws_submit!(
@@ -967,7 +997,19 @@ impl Handler {
             }
 
             // 2. Multiplex all event sources via tokio::select!
+            let nav_deadline = self
+                .next_navigation_deadline()
+                .map(tokio::time::Instant::from_std);
             tokio::select! {
+                _ = async {
+                    match nav_deadline {
+                        Some(deadline) => tokio::time::sleep_until(deadline).await,
+                        None => std::future::pending::<()>().await,
+                    }
+                } => {
+                    // Loop back so target.advance observes the deadline.
+                }
+
                 msg = self.from_browser.recv() => {
                     match msg {
                         Some(msg) => {
@@ -1465,6 +1507,29 @@ impl Stream for Handler {
                 return Poll::Pending;
             }
 
+            if let Some(deadline) = pin
+                .next_navigation_deadline()
+                .map(tokio::time::Instant::from_std)
+            {
+                if pin.nav_deadline.as_ref().map(|sleep| sleep.deadline()) != Some(deadline) {
+                    pin.nav_deadline = Some(Box::pin(tokio::time::sleep_until(deadline)));
+                }
+                if pin
+                    .nav_deadline
+                    .as_mut()
+                    .unwrap()
+                    .as_mut()
+                    .poll(cx)
+                    .is_ready()
+                {
+                    // Take a fresh now on the next poll before advancing targets.
+                    cx.waker().wake_by_ref();
+                    return Poll::Pending;
+                }
+            } else {
+                pin.nav_deadline = None;
+            }
+
             if done {
                 // no events/responses were read from the websocket
                 return Poll::Pending;
@@ -1612,6 +1677,8 @@ pub struct NavigationInProgress<T> {
     navigated: bool,
     /// The response of the issued navigation request
     response: Option<Response>,
+    /// Release a held navigate ack when the opted-in lifecycle deadline expires.
+    release_ack_on_timeout: bool,
     /// Sender who initiated the navigation request
     tx: OneshotSender<T>,
 }
@@ -1621,8 +1688,18 @@ impl<T> NavigationInProgress<T> {
         Self {
             navigated: false,
             response: None,
+            release_ack_on_timeout: false,
             tx,
         }
+    }
+
+    pub(crate) fn with_release_ack_on_timeout(mut self, on: bool) -> Self {
+        self.release_ack_on_timeout = on;
+        self
+    }
+
+    pub(crate) fn releases_ack_on_timeout(&self) -> bool {
+        self.release_ack_on_timeout
     }
 
     /// The response to the cdp request has arrived

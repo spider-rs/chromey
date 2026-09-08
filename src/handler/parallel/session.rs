@@ -122,6 +122,11 @@ impl SessionTask {
         evict.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
         loop {
+            let nav_deadline = self
+                .target
+                .frame_manager()
+                .next_navigation_deadline()
+                .map(tokio::time::Instant::from_std);
             tokio::select! {
                 biased;
 
@@ -144,6 +149,15 @@ impl SessionTask {
 
                 _ = self.page_wake.notified() => {
                     // page_rx will be drained in `drive()` below
+                }
+
+                _ = async {
+                    match nav_deadline {
+                        Some(deadline) => tokio::time::sleep_until(deadline).await,
+                        None => std::future::pending::<()>().await,
+                    }
+                } => {
+                    // Drive the target with a fresh now after the deadline.
                 }
 
                 _ = evict.tick() => {
@@ -279,6 +293,7 @@ impl SessionTask {
     }
 
     async fn submit_navigation_command(&mut self, msg: crate::cmd::CommandMessage, now: Instant) {
+        let navigation_timeout = msg.navigation_timeout;
         let (req, sender) = msg.split();
         let nav_id = self.alloc_nav_id();
         // Hand the request to the FrameManager so it knows what lifecycle
@@ -286,7 +301,9 @@ impl SessionTask {
         self.target.goto(FrameRequestedNavigation::new(
             nav_id,
             req.clone(),
-            self.request_timeout,
+            navigation_timeout
+                .unwrap_or(self.request_timeout)
+                .min(self.request_timeout),
         ));
 
         let call_id = self.alloc_call_id();
@@ -303,8 +320,11 @@ impl SessionTask {
         }
         self.pending
             .insert(call_id, (SessionPending::Navigate(nav_id), method, now));
-        self.navigations
-            .insert(nav_id, NavigationInProgress::new(sender));
+        self.navigations.insert(
+            nav_id,
+            NavigationInProgress::new(sender)
+                .with_release_ack_on_timeout(navigation_timeout.is_some()),
+        );
     }
 
     async fn submit_nav_request(&mut self, nav_id: NavigationId, req: Request, now: Instant) {
@@ -370,8 +390,17 @@ impl SessionTask {
                 }
             }
             Err(err) => {
-                if let Some(nav) = self.navigations.remove(err.navigation_id()) {
-                    let _ = nav.into_tx().send(Err(err.into()));
+                if let Some(mut nav) = self.navigations.remove(err.navigation_id()) {
+                    let release = matches!(err, NavigationError::Timeout { .. })
+                        && nav.releases_ack_on_timeout();
+                    match (release, nav.take_response()) {
+                        (true, Some(resp)) => {
+                            let _ = nav.into_tx().send(Ok(resp));
+                        }
+                        _ => {
+                            let _ = nav.into_tx().send(Err(err.into()));
+                        }
+                    }
                 }
             }
         }

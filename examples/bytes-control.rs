@@ -35,6 +35,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             frame_id: None,
             referrer: None,
             referrer_policy: None,
+            timeout: None,
         })?
         .and_then(|request| async { Ok(request.map(|r| r.response.clone())) })
         .await?;

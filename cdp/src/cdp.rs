@@ -91737,6 +91737,10 @@ pub mod browser_protocol {
             #[serde(default)]
             #[serde(deserialize_with = "super::super::de::deserialize_from_str_optional")]
             pub referrer_policy: Option<ReferrerPolicy>,
+            #[doc = "Navigation deadline in milliseconds. navi extension, Chrome ignores unknown parameters."]
+            #[serde(rename = "timeout")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub timeout: Option<i64>,
         }
         impl NavigateParams {
             pub fn new(url: impl Into<String>) -> Self {
@@ -91746,6 +91750,7 @@ pub mod browser_protocol {
                     transition_type: None,
                     frame_id: None,
                     referrer_policy: None,
+                    timeout: None,
                 }
             }
         }
@@ -91766,6 +91771,7 @@ pub mod browser_protocol {
             transition_type: Option<TransitionType>,
             frame_id: Option<FrameId>,
             referrer_policy: Option<ReferrerPolicy>,
+            timeout: Option<i64>,
         }
         impl NavigateParamsBuilder {
             pub fn url(mut self, url: impl Into<String>) -> Self {
@@ -91788,6 +91794,10 @@ pub mod browser_protocol {
                 self.referrer_policy = Some(referrer_policy.into());
                 self
             }
+            pub fn timeout(mut self, timeout: impl Into<i64>) -> Self {
+                self.timeout = Some(timeout.into());
+                self
+            }
             pub fn build(self) -> Result<NavigateParams, String> {
                 Ok(NavigateParams {
                     url: self
@@ -91797,6 +91807,7 @@ pub mod browser_protocol {
                     transition_type: self.transition_type,
                     frame_id: self.frame_id,
                     referrer_policy: self.referrer_policy,
+                    timeout: self.timeout,
                 })
             }
         }

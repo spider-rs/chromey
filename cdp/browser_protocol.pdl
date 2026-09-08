@@ -11084,6 +11084,8 @@ domain Page
       optional FrameId frameId
       # Referrer-policy used for the navigation.
       experimental optional ReferrerPolicy referrerPolicy
+      # Navigation deadline in milliseconds. navi extension, Chrome ignores unknown parameters.
+      optional integer timeout
     returns
       # Frame id that has navigated (or failed to navigate)
       FrameId frameId
