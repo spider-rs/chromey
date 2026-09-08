@@ -23,7 +23,6 @@ use tokio_tungstenite::tungstenite::Message as WsMessage;
 /// out-of-band events (e.g. force-detach a session).
 type ConnectionInjector = tokio::sync::mpsc::Sender<String>;
 
-#[derive(Default)]
 struct MockShared {
     /// Senders into each connection's writer task; tests `inject(...)`
     /// arbitrary CDP frames into a connection by pushing JSON strings.
@@ -32,6 +31,11 @@ struct MockShared {
     /// (no response). Lets eviction tests exercise the timeout path.
     swallow: Mutex<hashbrown::HashSet<String>>,
     navigate_error: Mutex<Option<NavigateError>>,
+    /// Raw `params` object of every `Page.navigate` request the mock received,
+    /// exactly as it arrived on the wire. Tests drain the matching receiver to
+    /// assert which keys the client actually serialized. Unbounded, so a
+    /// connection task never blocks on a test that stops draining.
+    navigate_params: tokio::sync::mpsc::UnboundedSender<serde_json::Value>,
     injected_loader: AtomicU64,
 }
 
@@ -47,6 +51,9 @@ pub struct CdpMock {
     accept_task: Option<JoinHandle<()>>,
     shutdown: Arc<tokio::sync::Notify>,
     shared: Arc<MockShared>,
+    /// Receiving half of `MockShared::navigate_params`. Owned by the handle, so
+    /// draining it needs `&mut self` instead of a shared lock.
+    navigate_params: tokio::sync::mpsc::UnboundedReceiver<serde_json::Value>,
 }
 
 impl CdpMock {
@@ -58,7 +65,14 @@ impl CdpMock {
         let addr = listener.local_addr().expect("local_addr");
         let shutdown = Arc::new(tokio::sync::Notify::new());
         let shutdown_clone = shutdown.clone();
-        let shared = Arc::new(MockShared::default());
+        let (navigate_tx, navigate_rx) = tokio::sync::mpsc::unbounded_channel();
+        let shared = Arc::new(MockShared {
+            connections: Default::default(),
+            swallow: Default::default(),
+            navigate_error: Default::default(),
+            navigate_params: navigate_tx,
+            injected_loader: AtomicU64::new(0),
+        });
         let shared_clone = shared.clone();
 
         let accept_task = tokio::spawn(async move {
@@ -82,6 +96,7 @@ impl CdpMock {
             accept_task: Some(accept_task),
             shutdown,
             shared,
+            navigate_params: navigate_rx,
         }
     }
 
@@ -114,6 +129,23 @@ impl CdpMock {
         if let Some(error) = self.shared.navigate_error.lock().await.as_mut() {
             error.commits = true;
         }
+    }
+
+    /// Take every `Page.navigate` params object recorded since the last drain,
+    /// in arrival order. Non-blocking: it returns what has already arrived and
+    /// never waits for more.
+    pub fn drain_navigate_params(&mut self) -> Vec<serde_json::Value> {
+        let mut out = Vec::new();
+        while let Ok(params) = self.navigate_params.try_recv() {
+            out.push(params);
+        }
+        out
+    }
+
+    /// Drop the recorded `Page.navigate` params, so a test can ignore the
+    /// navigations `Browser::new_page` performs during setup.
+    pub fn clear_navigate_params(&mut self) {
+        let _ = self.drain_navigate_params();
     }
 
     /// Restore successful navigate acks and completion events.
@@ -252,6 +284,12 @@ async fn handle_connection(stream: tokio::net::TcpStream, shared: Arc<MockShared
                     .and_then(|v| v.as_str())
                     .map(str::to_string);
                 let params = req.get("params").cloned().unwrap_or(serde_json::Value::Null);
+
+                // Record before the swallow check, so a swallowed navigate is
+                // still visible to the test that dropped it.
+                if method == "Page.navigate" {
+                    let _ = shared.navigate_params.send(params.clone());
+                }
 
                 if shared.swallow.lock().await.contains(&method) {
                     // Test asked us to drop this method — emit nothing.

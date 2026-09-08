@@ -23,7 +23,7 @@ use chromiumoxide_cdp::cdp::browser_protocol::input::{
     DispatchMouseEventParams, DispatchMouseEventType, DragData, MouseButton,
 };
 use chromiumoxide_cdp::cdp::browser_protocol::page::{
-    FrameId, GetLayoutMetricsParams, GetLayoutMetricsReturns, NavigateParams, PrintToPdfParams,
+    FrameId, GetLayoutMetricsParams, GetLayoutMetricsReturns, NavigateReturns, PrintToPdfParams,
     SetBypassCspParams, Viewport,
 };
 use chromiumoxide_cdp::cdp::browser_protocol::target::{ActivateTargetParams, SessionId, TargetId};
@@ -240,11 +240,18 @@ impl PageInner {
         ))
     }
 
-    pub(crate) fn navigate_http_future(
-        &self,
-        params: NavigateParams,
-    ) -> Result<HttpFuture<NavigateParams>> {
-        let url = params.url.clone();
+    /// Issue a navigate command and wait for the final HTTP request, resolving
+    /// early when the ack reports a terminal error.
+    ///
+    /// Generic over the params type so both plain [`NavigateParams`] and the
+    /// deadline-carrying
+    /// [`NavigateWithDeadlineParams`](crate::navigate_deadline::NavigateWithDeadlineParams)
+    /// share one failure-check path. `url` is stamped onto the synthetic failed
+    /// request; callers pass the URL their params carry.
+    pub(crate) fn navigate_http_future<T>(&self, params: T, url: String) -> Result<HttpFuture<T>>
+    where
+        T: Command<Response = NavigateReturns>,
+    {
         let cmd = self.command_future(params)?;
         Ok(HttpFuture::with_failure_check(
             self.sender.clone(),
