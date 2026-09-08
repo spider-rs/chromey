@@ -27,5 +27,12 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y xvfb
       - name: Build
         run: cargo build --verbose --release
+      - name: Build examples
+        run: cargo build --examples
+      - name: Build with parallel-handler
+        run: cargo build --features parallel-handler
       - name: Run tests
         run: xvfb-run cargo test
+      - name: Run tests with parallel-handler
+        run: xvfb-run cargo test --features parallel-handler
+

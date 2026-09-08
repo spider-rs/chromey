@@ -121,11 +121,18 @@ impl SessionTask {
         );
         evict.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
+        // An expired deadline that has already released a wake. Rearming it
+        // would be ready at once and spin this loop, so it is skipped until
+        // the deadline value actually changes.
+        let mut nav_deadline_fired: Option<Instant> = None;
+
         loop {
-            let nav_deadline = self
-                .target
-                .frame_manager()
-                .next_navigation_deadline()
+            let deadline = self.target.frame_manager().next_navigation_deadline();
+            if nav_deadline_fired.is_some() && nav_deadline_fired != deadline {
+                nav_deadline_fired = None;
+            }
+            let nav_deadline = deadline
+                .filter(|_| nav_deadline_fired.is_none())
                 .map(tokio::time::Instant::from_std);
             tokio::select! {
                 biased;
@@ -158,6 +165,7 @@ impl SessionTask {
                     }
                 } => {
                     // Drive the target with a fresh now after the deadline.
+                    nav_deadline_fired = deadline;
                 }
 
                 _ = evict.tick() => {

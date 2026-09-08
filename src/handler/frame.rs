@@ -255,6 +255,15 @@ pub struct FrameManager {
     max_main_frame_navigations: Option<u32>,
     /// Count of main-frame cross-document navigations since the last `goto`.
     main_frame_nav_count: u32,
+    /// Set on every write to `navigation` that can move its deadline.
+    ///
+    /// `navigation` is private to this type, so this bit is raised at each of
+    /// the four writes that change the deadline value: the clear in
+    /// `abandon_navigation`, the three `poll` branches that take the
+    /// navigation without restoring it, and the promotion of a queued
+    /// navigation. The restore branch puts back the same deadline, so it is
+    /// deliberately not counted.
+    nav_deadline_changed: bool,
 }
 
 impl FrameManager {
@@ -269,6 +278,7 @@ impl FrameManager {
             navigation: None,
             max_main_frame_navigations: None,
             main_frame_nav_count: 0,
+            nav_deadline_changed: false,
         }
     }
 
@@ -388,6 +398,7 @@ impl FrameManager {
             .is_some_and(|(nav, _)| nav.id == id)
         {
             self.navigation = None;
+            self.nav_deadline_changed = true;
         }
         // The retain is defensive rather than exercised: under `Handler::run()`
         // the navigation is always promoted into `self.navigation` before the ack
@@ -400,6 +411,11 @@ impl FrameManager {
         self.navigation.as_ref().map(|(_, deadline)| *deadline)
     }
 
+    /// Take the pending deadline-change notification, clearing it.
+    pub fn take_nav_deadline_changed(&mut self) -> bool {
+        std::mem::take(&mut self.nav_deadline_changed)
+    }
+
     pub fn poll(&mut self, now: Instant) -> Option<FrameEvent> {
         // check if the navigation completed
         if let Some((watcher, deadline)) = self.navigation.take() {
@@ -410,6 +426,7 @@ impl FrameManager {
                     let count = self.main_frame_nav_count;
                     // Keep the counter positive so the next goto can still
                     // reset it cleanly; we just clear the active navigation.
+                    self.nav_deadline_changed = true;
                     return Some(FrameEvent::NavigationResult(Err(
                         NavigationError::TooManyNavigations {
                             id: watcher.id,
@@ -421,6 +438,7 @@ impl FrameManager {
 
             if now > deadline {
                 // navigation request timed out
+                self.nav_deadline_changed = true;
                 return Some(FrameEvent::NavigationResult(Err(
                     NavigationError::Timeout {
                         err: DeadlineExceeded::new(now, deadline),
@@ -433,12 +451,14 @@ impl FrameManager {
                 if let Some(nav) = self.check_lifecycle_complete(&watcher, frame) {
                     // request is complete if the frame's lifecycle is complete = frame received all
                     // required events
+                    self.nav_deadline_changed = true;
                     return Some(FrameEvent::NavigationResult(Ok(nav)));
                 } else {
                     // not finished yet
                     self.navigation = Some((watcher, deadline));
                 }
             } else {
+                self.nav_deadline_changed = true;
                 return Some(FrameEvent::NavigationResult(Err(
                     NavigationError::FrameNotFound {
                         frame: watcher.frame_id,
@@ -450,6 +470,7 @@ impl FrameManager {
             // queue in the next navigation that is must be fulfilled until `deadline`
             let deadline = Instant::now() + req.timeout;
             self.navigation = Some((watcher, deadline));
+            self.nav_deadline_changed = true;
             return Some(FrameEvent::NavigationRequest(req.id, req.req));
         }
         None

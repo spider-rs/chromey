@@ -451,3 +451,148 @@ mod channels {
         assert!(!future.committed());
     }
 }
+
+// The deadline arm is polled from the handler's hottest loop, so an expired
+// deadline that the target has not cleared yet must not keep rearming a timer
+// that is instantly ready. These drive the handler by hand so the wake count
+// and the in-flight ack map can be read between polls.
+mod deadline_driver {
+    use super::*;
+    use futures_util::poll;
+    use std::task::Poll;
+
+    const PUMP_LIMIT: usize = 20_000;
+
+    /// Poll the handler once, then the caller's future, until it resolves.
+    macro_rules! pump_until {
+        ($handler:expr, $fut:expr, $label:expr) => {{
+            let mut out = None;
+            for _ in 0..PUMP_LIMIT {
+                let _ = poll!($handler.next());
+                if let Poll::Ready(value) = poll!(&mut $fut) {
+                    out = Some(value);
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+            out.unwrap_or_else(|| panic!("{} never resolved", $label))
+        }};
+    }
+
+    /// A navigation whose deadline expires while the navigation is still in
+    /// flight releases exactly one wake, not one per poll.
+    ///
+    /// Time is paused so the tokio clock passes the deadline while the
+    /// `std::time::Instant` the frame manager compares against does not. That
+    /// is the shape the driver has to survive: the timer is ready, and the
+    /// target does not clear the navigation in response.
+    #[tokio::test(start_paused = true)]
+    async fn an_expired_navigation_deadline_wakes_once() {
+        let mock = cdp_mock::CdpMock::spawn().await;
+        let cfg = HandlerConfig {
+            request_timeout: Duration::from_secs(60),
+            ..Default::default()
+        };
+        let (browser, mut handler) = Browser::connect_with_config(mock.ws_url(), cfg)
+            .await
+            .expect("connect to mock");
+        mock.withhold_load();
+
+        let mut page_fut = Box::pin(browser.new_page("about:blank"));
+        let page = pump_until!(handler, page_fut, "new_page").expect("new_page");
+
+        let mut nav = Box::pin(
+            page.navigate_http_future_with_timeout(
+                NavigateParams::new("https://example.test/spin"),
+                Duration::from_secs(3),
+            )
+            .expect("navigate future"),
+        );
+
+        // Drive the navigate command out and let the held ack land, so the
+        // frame manager is holding a live navigation with a deadline.
+        for _ in 0..2_000 {
+            let _ = poll!(handler.next());
+            let _ = poll!(&mut nav);
+            tokio::task::yield_now().await;
+        }
+
+        // Past the deadline on the tokio clock only.
+        tokio::time::advance(Duration::from_secs(5)).await;
+
+        let before = handler.navigation_deadline_wakes();
+        for _ in 0..500 {
+            let _ = poll!(handler.next());
+            tokio::task::yield_now().await;
+        }
+        let wakes = handler.navigation_deadline_wakes() - before;
+        assert!(
+            wakes <= 1,
+            "an expired deadline rearmed itself {wakes} times over 500 polls"
+        );
+    }
+
+    /// Every deadline-released navigation leaves the handler's ack map empty,
+    /// so the release path cannot leak a held response.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn deadline_released_navigations_drain_the_ack_map() {
+        const NAVIGATIONS: usize = 50;
+
+        let mock = cdp_mock::CdpMock::spawn().await;
+        let cfg = HandlerConfig {
+            request_timeout: Duration::from_secs(60),
+            ..Default::default()
+        };
+        let (browser, mut handler) = Browser::connect_with_config(mock.ws_url(), cfg)
+            .await
+            .expect("connect to mock");
+        mock.withhold_load();
+
+        let mut page_fut = Box::pin(browser.new_page("about:blank"));
+        let page = pump_until!(handler, page_fut, "new_page").expect("new_page");
+
+        let mut navs: Vec<_> = (0..NAVIGATIONS)
+            .map(|n| {
+                Some(Box::pin(
+                    page.navigate_http_future_with_timeout(
+                        NavigateParams::new(format!("https://example.test/drain/{n}")),
+                        Duration::from_millis(80),
+                    )
+                    .expect("navigate future"),
+                ))
+            })
+            .collect();
+
+        let mut done = 0usize;
+        let start = Instant::now();
+        while done < NAVIGATIONS {
+            assert!(
+                start.elapsed() < Duration::from_secs(90),
+                "only {done}/{NAVIGATIONS} navigations settled"
+            );
+            let _ = poll!(handler.next());
+            for slot in navs.iter_mut() {
+                let settled = match slot.as_mut() {
+                    Some(nav) => poll!(nav.as_mut()).is_ready(),
+                    None => false,
+                };
+                if settled {
+                    *slot = None;
+                    done += 1;
+                }
+            }
+            tokio::task::yield_now().await;
+        }
+
+        // Give the handler a few more turns to retire anything still queued.
+        for _ in 0..1_000 {
+            let _ = poll!(handler.next());
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(
+            handler.navigations_len(),
+            0,
+            "the handler leaked held navigation acks"
+        );
+    }
+}

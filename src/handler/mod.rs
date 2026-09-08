@@ -105,7 +105,27 @@ pub struct Handler {
     /// when a page sends a message.  `None` when using the `Stream` API.
     page_wake: Option<Arc<Notify>>,
     /// Wakes the stream driver when the next navigation deadline expires.
+    ///
+    /// Allocated once and rearmed with `Sleep::reset`, so a deadline change
+    /// does not cost a fresh `Box`.
     nav_deadline: Option<Pin<Box<tokio::time::Sleep>>>,
+    /// Cached earliest navigation deadline across all targets.
+    ///
+    /// Recomputed only when `nav_deadline_dirty` is set, so the per-poll cost
+    /// of the deadline arm does not grow with the target count.
+    nav_deadline_cache: Option<Instant>,
+    /// Set whenever a target's in-flight navigation changed, so the cache is
+    /// recomputed before it is read again.
+    nav_deadline_dirty: bool,
+    /// Set once the cached deadline has already released a wake.
+    ///
+    /// An expired deadline stays expired. Without this the driver rearms an
+    /// already-elapsed timer, which is ready at once, wakes again, and pegs a
+    /// core for as long as the navigation stays in flight. Cleared on every
+    /// recompute, so a genuinely new deadline still wakes exactly once.
+    nav_deadline_fired: bool,
+    /// Count of wakes released by the deadline arm, for tests to assert on.
+    nav_deadline_wakes: u64,
 }
 
 lazy_static::lazy_static! {
@@ -174,6 +194,10 @@ impl Handler {
             attached_targets: Default::default(),
             page_wake: None,
             nav_deadline: None,
+            nav_deadline_cache: None,
+            nav_deadline_dirty: true,
+            nav_deadline_fired: false,
+            nav_deadline_wakes: 0,
         }
     }
 
@@ -458,11 +482,56 @@ impl Handler {
         }
     }
 
-    pub(crate) fn next_navigation_deadline(&self) -> Option<Instant> {
-        self.targets
-            .values()
-            .filter_map(|target| target.frame_manager().next_navigation_deadline())
-            .min()
+    /// The earliest in-flight navigation deadline across every target.
+    ///
+    /// The scan is O(targets), so it runs only when a navigation actually
+    /// changed. `FrameManager` raises its own dirty bit on every write that
+    /// can move its deadline, and both drivers drain that bit into
+    /// `nav_deadline_dirty` while they walk the targets they already visit
+    /// each iteration. A deadline is only ever *created* inside
+    /// `FrameManager::poll`, which runs during that same walk, so the cache
+    /// can lag a removal (harmless: the timer fires early, the recompute then
+    /// finds nothing) but never a new, earlier deadline.
+    pub(crate) fn next_navigation_deadline(&mut self) -> Option<Instant> {
+        if self.nav_deadline_dirty {
+            self.nav_deadline_dirty = false;
+            self.nav_deadline_fired = false;
+            self.nav_deadline_cache = self
+                .targets
+                .values()
+                .filter_map(|target| target.frame_manager().next_navigation_deadline())
+                .min();
+        }
+        self.nav_deadline_cache
+    }
+
+    /// The next navigation deadline that has not already released a wake.
+    fn pending_navigation_deadline(&mut self) -> Option<Instant> {
+        let deadline = self.next_navigation_deadline()?;
+        if self.nav_deadline_fired {
+            None
+        } else {
+            Some(deadline)
+        }
+    }
+
+    /// Pull a target's pending navigation-deadline change into the handler.
+    fn drain_navigation_deadline_change(&mut self, target: &mut Target) {
+        if target.frame_manager_mut().take_nav_deadline_changed() {
+            self.nav_deadline_dirty = true;
+        }
+    }
+
+    /// How many times the deadline arm has released a wake. Test hook.
+    #[doc(hidden)]
+    pub fn navigation_deadline_wakes(&self) -> u64 {
+        self.nav_deadline_wakes
+    }
+
+    /// How many navigation acks are still held by the handler. Test hook.
+    #[doc(hidden)]
+    pub fn navigations_len(&self) -> usize {
+        self.navigations.len()
     }
 
     /// An identifier for queued `NavigationRequest`s.
@@ -978,6 +1047,7 @@ impl Handler {
                     // Flush event listeners (no Context needed).
                     target.event_listeners_mut().flush();
 
+                    self.drain_navigation_deadline_change(&mut target);
                     self.targets.insert(id, target);
                     self.target_ids.push(target_id);
                 }
@@ -998,7 +1068,7 @@ impl Handler {
 
             // 2. Multiplex all event sources via tokio::select!
             let nav_deadline = self
-                .next_navigation_deadline()
+                .pending_navigation_deadline()
                 .map(tokio::time::Instant::from_std);
             tokio::select! {
                 _ = async {
@@ -1007,7 +1077,11 @@ impl Handler {
                         None => std::future::pending::<()>().await,
                     }
                 } => {
-                    // Loop back so target.advance observes the deadline.
+                    // Loop back so target.advance observes the deadline. An
+                    // expired deadline is consumed here so a navigation that
+                    // outlives it cannot rearm an already-elapsed timer.
+                    self.nav_deadline_fired = true;
+                    self.nav_deadline_wakes = self.nav_deadline_wakes.saturating_add(1);
                 }
 
                 msg = self.from_browser.recv() => {
@@ -1406,6 +1480,7 @@ impl Stream for Handler {
                     // poll the target's event listeners
                     target.event_listeners_mut().poll(cx);
 
+                    pin.drain_navigation_deadline_change(&mut target);
                     pin.targets.insert(id, target);
                     pin.target_ids.push(target_id);
                 }
@@ -1508,26 +1583,34 @@ impl Stream for Handler {
             }
 
             if let Some(deadline) = pin
-                .next_navigation_deadline()
+                .pending_navigation_deadline()
                 .map(tokio::time::Instant::from_std)
             {
-                if pin.nav_deadline.as_ref().map(|sleep| sleep.deadline()) != Some(deadline) {
-                    pin.nav_deadline = Some(Box::pin(tokio::time::sleep_until(deadline)));
-                }
-                if pin
-                    .nav_deadline
-                    .as_mut()
-                    .unwrap()
-                    .as_mut()
-                    .poll(cx)
-                    .is_ready()
-                {
-                    // Take a fresh now on the next poll before advancing targets.
+                // Bind the timer so the `None` arm cannot be reached, and
+                // rearm the existing `Sleep` rather than boxing a new one.
+                let expired = match pin.nav_deadline.as_mut() {
+                    Some(sleep) => {
+                        if sleep.deadline() != deadline {
+                            sleep.as_mut().reset(deadline);
+                        }
+                        sleep.as_mut().poll(cx).is_ready()
+                    }
+                    None => {
+                        let sleep = pin
+                            .nav_deadline
+                            .insert(Box::pin(tokio::time::sleep_until(deadline)));
+                        sleep.as_mut().poll(cx).is_ready()
+                    }
+                };
+
+                if expired {
+                    // Release exactly one wake per deadline. Take a fresh now
+                    // on the next poll before advancing targets.
+                    pin.nav_deadline_fired = true;
+                    pin.nav_deadline_wakes = pin.nav_deadline_wakes.saturating_add(1);
                     cx.waker().wake_by_ref();
                     return Poll::Pending;
                 }
-            } else {
-                pin.nav_deadline = None;
             }
 
             if done {
