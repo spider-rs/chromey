@@ -35,4 +35,10 @@ jobs:
         run: xvfb-run cargo test
       - name: Run tests with parallel-handler
         run: xvfb-run cargo test --features parallel-handler
+      # Called out separately so the log shows the measured navigation
+      # timings, or the skip line when the runner has no Chrome.
+      - name: Run navigation-deadline end-to-end tests
+        run: xvfb-run cargo test --test navigate_timeout_e2e -- --nocapture --test-threads=1
+      - name: Run navigation-deadline end-to-end tests with parallel-handler
+        run: xvfb-run cargo test --features parallel-handler --test navigate_timeout_e2e -- --nocapture --test-threads=1
 
