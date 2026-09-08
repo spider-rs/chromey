@@ -86,6 +86,7 @@ pub mod keys;
 pub mod layout;
 pub mod listeners;
 pub mod mouse;
+pub mod navigate_deadline;
 pub mod page;
 pub mod runtime_release;
 pub mod uring_fs;
