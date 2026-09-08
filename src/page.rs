@@ -48,7 +48,6 @@ use crate::javascript::extract::{
 use crate::js::{Evaluation, EvaluationResult};
 use crate::layout::{Delta, Point, ScrollBehavior};
 use crate::listeners::{EventListenerRequest, EventStream};
-use crate::navigate_deadline::NavigateWithDeadlineParams;
 use crate::webmcp::{CallToolParams, ListToolsParams, Tool};
 use crate::{utils, ArcHttpRequest};
 use aho_corasick::AhoCorasick;
@@ -418,30 +417,7 @@ impl Page {
         &self,
         params: impl Into<NavigateParams>,
     ) -> Result<HttpFuture<NavigateParams>> {
-        let params = params.into();
-        let url = params.url.clone();
-        self.inner.navigate_http_future(params, url)
-    }
-
-    /// Navigate with a server-side deadline and wait for the final HTTP request.
-    ///
-    /// Sends the standard `Page.navigate` params plus a `timeout` key holding
-    /// `navigation_timeout` in whole milliseconds, so a server that honours it
-    /// gives up on its own and acks with an `errorText` instead of leaving the
-    /// caller to abort blind. Everything else matches
-    /// [`Self::navigate_http_future`]: same method string, same early-resolve
-    /// behaviour on a terminal ack. Servers that do not implement the key
-    /// ignore it and navigate as usual.
-    ///
-    /// Durations beyond [`i64::MAX`] milliseconds saturate rather than wrap.
-    pub fn navigate_http_future_with_timeout(
-        &self,
-        params: impl Into<NavigateParams>,
-        navigation_timeout: std::time::Duration,
-    ) -> Result<HttpFuture<NavigateWithDeadlineParams>> {
-        let params = NavigateWithDeadlineParams::new(params.into(), navigation_timeout);
-        let url = params.url().to_string();
-        self.inner.navigate_http_future(params, url)
+        self.inner.navigate_http_future(params.into())
     }
 
     /// Adds an event listener to the `Target` and returns the receiver part as
