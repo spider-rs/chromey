@@ -10,13 +10,15 @@
 #![allow(dead_code)]
 
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 
 use futures_util::{SinkExt, StreamExt};
+use tokio::io::AsyncReadExt;
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
+use tokio_tungstenite::tungstenite::http::{HeaderMap, HeaderName, HeaderValue};
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
 /// One thread-safe entry point per active connection so tests can inject
@@ -43,6 +45,24 @@ struct MockShared {
     /// commits a document for this call; the mock only does it on request so
     /// no existing test changes shape.
     commit_set_document_content: std::sync::atomic::AtomicBool,
+    /// Every WebSocket upgrade request the listener saw, in arrival order,
+    /// whether or not the handshake was allowed to complete. A std mutex
+    /// because the recording site is tungstenite's synchronous header
+    /// callback.
+    upgrade_requests: std::sync::Mutex<Vec<UpgradeRequest>>,
+    /// How many upcoming connections to close after reading the request
+    /// head, before any HTTP response. The client sees a dropped socket,
+    /// which is the retriable shape, not an HTTP error.
+    drop_handshakes: AtomicU32,
+}
+
+/// One WebSocket upgrade request as it reached the mock.
+#[derive(Clone, Debug)]
+pub struct UpgradeRequest {
+    /// Request headers, exactly as parsed off the wire.
+    pub headers: HeaderMap,
+    /// `false` when the mock closed the socket instead of upgrading.
+    pub completed: bool,
 }
 
 #[derive(Clone)]
@@ -79,6 +99,8 @@ impl CdpMock {
             navigate_params: navigate_tx,
             injected_loader: AtomicU64::new(0),
             commit_set_document_content: std::sync::atomic::AtomicBool::new(false),
+            upgrade_requests: Default::default(),
+            drop_handshakes: AtomicU32::new(0),
         });
         let shared_clone = shared.clone();
 
@@ -89,7 +111,18 @@ impl CdpMock {
                     accept = listener.accept() => {
                         match accept {
                             Ok((stream, _)) => {
-                                tokio::spawn(handle_connection(stream, shared_clone.clone()));
+                                let shared = shared_clone.clone();
+                                let drop_it = shared
+                                    .drop_handshakes
+                                    .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| {
+                                        n.checked_sub(1)
+                                    })
+                                    .is_ok();
+                                if drop_it {
+                                    tokio::spawn(drop_after_request_head(stream, shared));
+                                } else {
+                                    tokio::spawn(handle_connection(stream, shared));
+                                }
                             }
                             Err(_) => break,
                         }
@@ -114,6 +147,23 @@ impl CdpMock {
 
     pub fn addr(&self) -> SocketAddr {
         self.addr
+    }
+
+    /// Every upgrade request the listener has seen so far, oldest first.
+    pub fn upgrade_requests(&self) -> Vec<UpgradeRequest> {
+        self.shared
+            .upgrade_requests
+            .lock()
+            .expect("upgrade_requests lock")
+            .clone()
+    }
+
+    /// Close the next `n` connections after reading their request head and
+    /// before answering, so the client's connect fails in a way it retries.
+    /// The dropped requests are still recorded by [`Self::upgrade_requests`]
+    /// with `completed == false`.
+    pub fn drop_next_handshakes(&self, n: u32) {
+        self.shared.drop_handshakes.store(n, Ordering::SeqCst);
     }
 
     /// Swallow any subsequent request whose `method` matches — the mock
@@ -236,10 +286,59 @@ struct ConnState {
     sessions: hashbrown::HashMap<String, (String, String, String)>,
 }
 
+fn record_upgrade(shared: &MockShared, headers: HeaderMap, completed: bool) {
+    shared
+        .upgrade_requests
+        .lock()
+        .expect("upgrade_requests lock")
+        .push(UpgradeRequest { headers, completed });
+}
+
+/// Read one HTTP request head off a raw socket, record its headers, and let
+/// the socket drop without a response.
+async fn drop_after_request_head(mut stream: tokio::net::TcpStream, shared: Arc<MockShared>) {
+    let mut buf = Vec::with_capacity(1024);
+    let mut chunk = [0u8; 512];
+    loop {
+        match stream.read(&mut chunk).await {
+            Ok(0) | Err(_) => break,
+            Ok(n) => buf.extend_from_slice(&chunk[..n]),
+        }
+        if buf.windows(4).any(|w| w == b"\r\n\r\n") || buf.len() > 64 * 1024 {
+            break;
+        }
+    }
+    let head = String::from_utf8_lossy(&buf);
+    let mut headers = HeaderMap::new();
+    for line in head.split("\r\n").skip(1) {
+        let Some((name, value)) = line.split_once(':') else {
+            continue;
+        };
+        if let (Ok(name), Ok(value)) = (
+            HeaderName::from_bytes(name.trim().as_bytes()),
+            HeaderValue::from_str(value.trim()),
+        ) {
+            headers.append(name, value);
+        }
+    }
+    record_upgrade(&shared, headers, false);
+    drop(stream);
+}
+
 async fn handle_connection(stream: tokio::net::TcpStream, shared: Arc<MockShared>) {
     let _ = stream.set_nodelay(true);
-    let ws = match tokio_tungstenite::accept_async(tokio_tungstenite::MaybeTlsStream::Plain(stream))
-        .await
+    let recorder = shared.clone();
+    let callback =
+        move |req: &tokio_tungstenite::tungstenite::handshake::server::Request,
+              resp: tokio_tungstenite::tungstenite::handshake::server::Response| {
+            record_upgrade(&recorder, req.headers().clone(), true);
+            Ok(resp)
+        };
+    let ws = match tokio_tungstenite::accept_hdr_async(
+        tokio_tungstenite::MaybeTlsStream::Plain(stream),
+        callback,
+    )
+    .await
     {
         Ok(ws) => ws,
         Err(_) => return,

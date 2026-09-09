@@ -106,7 +106,7 @@ pub use spider_network_blocker;
 pub use spider_firewall;
 
 pub use crate::browser::{Browser, BrowserConfig};
-pub use crate::conn::Connection;
+pub use crate::conn::{ConnectHeaderError, ConnectHeaders, Connection};
 pub use crate::element::Element;
 pub use crate::error::Result;
 #[cfg(feature = "fetcher")]

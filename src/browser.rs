@@ -1,5 +1,5 @@
 use hashbrown::HashMap;
-use reqwest::header::{HeaderMap, HeaderValue, CONTENT_TYPE};
+use reqwest::header::{HeaderMap, HeaderName, HeaderValue, CONTENT_TYPE};
 use std::future::Future;
 use std::time::Duration;
 use std::{
@@ -12,7 +12,7 @@ use tokio::sync::oneshot::channel as oneshot_channel;
 
 use crate::async_process::{self, Child, ExitStatus, Stdio};
 use crate::cmd::{to_command_response, CommandMessage};
-use crate::conn::Connection;
+use crate::conn::{ConnectHeaderError, ConnectHeaders, Connection};
 use crate::detection::{self, DetectionOptions};
 use crate::error::{BrowserStderr, CdpError, Result};
 use crate::handler::browser::BrowserContext;
@@ -185,8 +185,12 @@ impl Browser {
             }
         }
 
-        let conn =
-            Connection::<CdpEventMessage>::connect_with_retries(&debug_ws_url, retries).await?;
+        let conn = Connection::<CdpEventMessage>::connect_with_retries_and_headers(
+            &debug_ws_url,
+            retries,
+            &config.connect_headers,
+        )
+        .await?;
 
         let (tx, rx) = channel(config.channel_capacity);
 
@@ -214,6 +218,7 @@ impl Browser {
             max_main_frame_navigations: config.max_main_frame_navigations,
             whitelist_patterns: config.whitelist_patterns.clone(),
             blacklist_patterns: config.blacklist_patterns.clone(),
+            connect_headers: config.connect_headers.clone(),
             ..Default::default()
         };
 
@@ -266,9 +271,10 @@ impl Browser {
 
             // extract the ws:
             let debug_ws_url = ws_url_from_output(child, timeout_fut).await?;
-            let conn = Connection::<CdpEventMessage>::connect_with_retries(
+            let conn = Connection::<CdpEventMessage>::connect_with_retries_and_headers(
                 &debug_ws_url,
                 config.connection_retries,
+                &config.connect_headers,
             )
             .await?;
             Ok((debug_ws_url, conn))
@@ -329,6 +335,7 @@ impl Browser {
             channel_capacity: config.channel_capacity,
             page_channel_capacity: config.page_channel_capacity,
             connection_retries: config.connection_retries,
+            connect_headers: config.connect_headers.clone(),
         };
 
         let fut = Handler::new(conn, rx, handler_config);
@@ -955,6 +962,9 @@ pub struct BrowserConfig {
     /// Number of WebSocket connection retry attempts with exponential backoff.
     /// Defaults to 4.
     pub connection_retries: u32,
+    /// Headers added to the CDP WebSocket upgrade request. See
+    /// [`BrowserConfigBuilder::connect_header`].
+    pub connect_headers: ConnectHeaders,
 }
 
 #[derive(Debug, Clone)]
@@ -1044,6 +1054,8 @@ pub struct BrowserConfigBuilder {
     page_channel_capacity: usize,
     /// Number of WebSocket connection retry attempts.
     connection_retries: u32,
+    /// Headers added to the CDP WebSocket upgrade request.
+    connect_headers: ConnectHeaders,
 }
 
 impl BrowserConfig {
@@ -1104,6 +1116,7 @@ impl Default for BrowserConfigBuilder {
             channel_capacity: 4096,
             page_channel_capacity: crate::handler::page::DEFAULT_PAGE_CHANNEL_CAPACITY,
             connection_retries: crate::conn::DEFAULT_CONNECTION_RETRIES,
+            connect_headers: ConnectHeaders::new(),
         }
     }
 }
@@ -1383,6 +1396,46 @@ impl BrowserConfigBuilder {
         self
     }
 
+    /// Add one header to the CDP WebSocket upgrade request.
+    ///
+    /// This is the HTTP `GET` that opens the socket, so a gateway in front of
+    /// the browser sees the header on the handshake. It is separate from
+    /// [`Self::set_extra_headers`], which sets headers on the page's own
+    /// network requests. Every connect attempt, including retries, carries
+    /// the header. Setting a name twice keeps the last value.
+    ///
+    /// Fails, without panicking, on a name that is not a valid header name,
+    /// a value that is not visible ASCII, a name the handshake owns (`host`,
+    /// `connection`, `upgrade`, `sec-websocket-*`), or a set that would pass
+    /// [`ConnectHeaders::MAX_TOTAL_BYTES`] (8 KiB) on the wire.
+    pub fn connect_header<N, V>(
+        mut self,
+        name: N,
+        value: V,
+    ) -> std::result::Result<Self, ConnectHeaderError>
+    where
+        N: TryInto<HeaderName>,
+        N::Error: std::fmt::Display,
+        V: TryInto<HeaderValue>,
+        V::Error: std::fmt::Display,
+    {
+        self.connect_headers.insert(name, value)?;
+        Ok(self)
+    }
+
+    /// Replace the CDP WebSocket upgrade headers with `headers`.
+    ///
+    /// Accepts a [`ConnectHeaders`] or a `HeaderMap`. Validation is the same
+    /// as [`Self::connect_header`]; a map with a repeated name keeps its last
+    /// value.
+    pub fn connect_headers<H>(mut self, headers: H) -> std::result::Result<Self, ConnectHeaderError>
+    where
+        H: TryInto<ConnectHeaders, Error = ConnectHeaderError>,
+    {
+        self.connect_headers = headers.try_into()?;
+        Ok(self)
+    }
+
     /// Build the browser.
     pub fn build(self) -> std::result::Result<BrowserConfig, String> {
         let executable = if let Some(e) = self.executable {
@@ -1432,6 +1485,7 @@ impl BrowserConfigBuilder {
             channel_capacity: self.channel_capacity,
             page_channel_capacity: self.page_channel_capacity,
             connection_retries: self.connection_retries,
+            connect_headers: self.connect_headers,
         })
     }
 }

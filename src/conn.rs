@@ -8,6 +8,7 @@ use futures_util::{SinkExt, Stream, StreamExt};
 use std::future::Future;
 use std::task::{Context, Poll};
 use tokio::sync::mpsc;
+use tokio_tungstenite::tungstenite::http::{HeaderMap, HeaderName, HeaderValue};
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 use tokio_tungstenite::MaybeTlsStream;
 use tokio_tungstenite::{tungstenite::protocol::WebSocketConfig, WebSocketStream};
@@ -58,12 +59,206 @@ const INITIAL_BACKOFF_MS: u64 = 50;
 /// Maximum backoff delay between connection retries (in milliseconds).
 pub(crate) const MAX_BACKOFF_MS: u64 = 2_000;
 
+/// Why a header was refused by [`ConnectHeaders`].
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ConnectHeaderError {
+    /// The name is not a valid HTTP header name.
+    #[error("invalid connect header name: {0}")]
+    InvalidName(String),
+    /// The value is not visible ASCII. The upgrade request is written as text,
+    /// so a value tungstenite cannot render as a `str` would fail the handshake
+    /// at connect time instead of here.
+    #[error("connect header `{0}` must be visible ASCII")]
+    NonAscii(String),
+    /// The name belongs to the WebSocket handshake itself (`host`,
+    /// `connection`, `upgrade`, `sec-websocket-*`). tungstenite writes those
+    /// and rejects duplicates, so setting one can only break the upgrade.
+    #[error("connect header `{0}` is owned by the WebSocket handshake")]
+    Reserved(String),
+    /// Adding the header would push the set past
+    /// [`ConnectHeaders::MAX_TOTAL_BYTES`].
+    #[error("connect headers would total {total} bytes, over the {max} byte limit")]
+    TooLarge {
+        /// Wire size the set would have after the insert.
+        total: usize,
+        /// The limit, [`ConnectHeaders::MAX_TOTAL_BYTES`].
+        max: usize,
+    },
+}
+
+/// Headers added to the CDP WebSocket upgrade request (the HTTP `GET` that
+/// opens the socket), as opposed to `extra_headers`, which are applied to the
+/// page's own network requests via `Network.setExtraHTTPHeaders`.
+///
+/// A gateway in front of the browser sees these on the upgrade head and can
+/// use them to tag or route the connection. Each name appears once; inserting
+/// a name that is already present replaces its value. The set is validated at
+/// insert time, so a `ConnectHeaders` that exists can always be sent. An empty
+/// set leaves the upgrade request byte for byte as it was without one.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ConnectHeaders {
+    headers: Vec<(HeaderName, HeaderValue)>,
+    /// Wire bytes the current set would occupy, see [`Self::wire_len`].
+    total: usize,
+}
+
+impl ConnectHeaders {
+    /// Upper bound on the wire size of the whole set, counted as
+    /// `name: value\r\n` per header. Keeps a misconfigured caller from
+    /// shipping a request head a proxy will reject.
+    pub const MAX_TOTAL_BYTES: usize = 8 * 1024;
+
+    const RESERVED: [&'static str; 3] = ["host", "connection", "upgrade"];
+
+    /// An empty set.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Add one header, replacing any existing header of the same name.
+    ///
+    /// `name` and `value` accept anything the `http` crate can convert
+    /// (`&str`, `String`, or the typed `HeaderName` / `HeaderValue`).
+    pub fn insert<N, V>(&mut self, name: N, value: V) -> std::result::Result<(), ConnectHeaderError>
+    where
+        N: TryInto<HeaderName>,
+        N::Error: std::fmt::Display,
+        V: TryInto<HeaderValue>,
+        V::Error: std::fmt::Display,
+    {
+        let name: HeaderName = name
+            .try_into()
+            .map_err(|e| ConnectHeaderError::InvalidName(e.to_string()))?;
+        let value: HeaderValue = value
+            .try_into()
+            .map_err(|_| ConnectHeaderError::NonAscii(name.as_str().to_string()))?;
+
+        let lower = name.as_str();
+        if Self::RESERVED.contains(&lower) || lower.starts_with("sec-websocket-") {
+            return Err(ConnectHeaderError::Reserved(lower.to_string()));
+        }
+        // `HeaderValue` allows obs-text (0x80..=0xFF); the handshake writer
+        // calls `to_str`, which does not.
+        if value.to_str().is_err() {
+            return Err(ConnectHeaderError::NonAscii(lower.to_string()));
+        }
+
+        let existing = self.headers.iter().position(|(n, _)| *n == name);
+        let replaced = existing.map_or(0, |i| Self::wire_len(&self.headers[i]));
+        let total = self.total - replaced + Self::wire_len(&(name.clone(), value.clone()));
+        if total > Self::MAX_TOTAL_BYTES {
+            return Err(ConnectHeaderError::TooLarge {
+                total,
+                max: Self::MAX_TOTAL_BYTES,
+            });
+        }
+
+        match existing {
+            Some(i) => self.headers[i] = (name, value),
+            None => self.headers.push((name, value)),
+        }
+        self.total = total;
+        Ok(())
+    }
+
+    /// Builder form of [`Self::insert`].
+    pub fn with<N, V>(mut self, name: N, value: V) -> std::result::Result<Self, ConnectHeaderError>
+    where
+        N: TryInto<HeaderName>,
+        N::Error: std::fmt::Display,
+        V: TryInto<HeaderValue>,
+        V::Error: std::fmt::Display,
+    {
+        self.insert(name, value)?;
+        Ok(self)
+    }
+
+    /// Whether the set holds no headers.
+    pub fn is_empty(&self) -> bool {
+        self.headers.is_empty()
+    }
+
+    /// Number of headers in the set.
+    pub fn len(&self) -> usize {
+        self.headers.len()
+    }
+
+    /// Wire bytes the set occupies on the upgrade request.
+    pub fn total_bytes(&self) -> usize {
+        self.total
+    }
+
+    /// The headers in insertion order.
+    pub fn iter(&self) -> impl Iterator<Item = (&HeaderName, &HeaderValue)> {
+        self.headers.iter().map(|(n, v)| (n, v))
+    }
+
+    /// Bytes `name: value\r\n` takes on the wire.
+    fn wire_len((name, value): &(HeaderName, HeaderValue)) -> usize {
+        name.as_str().len() + 2 + value.len() + 2
+    }
+
+    /// Put the set on an upgrade request. A no-op when empty, so the
+    /// request tungstenite builds from the URL is untouched.
+    pub(crate) fn apply(
+        &self,
+        request: &mut tokio_tungstenite::tungstenite::handshake::client::Request,
+    ) {
+        let headers = request.headers_mut();
+        for (name, value) in &self.headers {
+            headers.insert(name.clone(), value.clone());
+        }
+    }
+}
+
+impl TryFrom<HeaderMap> for ConnectHeaders {
+    type Error = ConnectHeaderError;
+
+    /// Every entry is validated as by [`ConnectHeaders::insert`]. A name that
+    /// repeats in the map keeps its last value.
+    fn try_from(map: HeaderMap) -> std::result::Result<Self, Self::Error> {
+        let mut out = Self::new();
+        for (name, value) in map.iter() {
+            out.insert(name.clone(), value.clone())?;
+        }
+        Ok(out)
+    }
+}
+
+impl TryFrom<&HeaderMap> for ConnectHeaders {
+    type Error = ConnectHeaderError;
+
+    fn try_from(map: &HeaderMap) -> std::result::Result<Self, Self::Error> {
+        Self::try_from(map.clone())
+    }
+}
+
 impl<T: EventMessage + Unpin> Connection<T> {
     pub async fn connect(debug_ws_url: impl AsRef<str>) -> Result<Self> {
         Self::connect_with_retries(debug_ws_url, DEFAULT_CONNECTION_RETRIES).await
     }
 
     pub async fn connect_with_retries(debug_ws_url: impl AsRef<str>, retries: u32) -> Result<Self> {
+        Self::connect_with_retries_and_headers(debug_ws_url, retries, &ConnectHeaders::new()).await
+    }
+
+    /// Like [`Self::connect`], with `headers` added to the WebSocket upgrade
+    /// request. Every attempt, including retries, carries them.
+    pub async fn connect_with_headers(
+        debug_ws_url: impl AsRef<str>,
+        headers: &ConnectHeaders,
+    ) -> Result<Self> {
+        Self::connect_with_retries_and_headers(debug_ws_url, DEFAULT_CONNECTION_RETRIES, headers)
+            .await
+    }
+
+    /// Like [`Self::connect_with_retries`], with `headers` added to the
+    /// WebSocket upgrade request on every attempt.
+    pub async fn connect_with_retries_and_headers(
+        debug_ws_url: impl AsRef<str>,
+        retries: u32,
+        headers: &ConnectHeaders,
+    ) -> Result<Self> {
         let mut config = WebSocketConfig::default();
 
         // Cap the internal write buffer so a slow receiver cannot cause
@@ -81,9 +276,9 @@ impl<T: EventMessage + Unpin> Connection<T> {
 
         for attempt in 0..=retries {
             let result = if use_uring {
-                Self::connect_uring(url, config).await
+                Self::connect_uring(url, config, headers).await
             } else {
-                Self::connect_default(url, config).await
+                Self::connect_default(url, config, headers).await
             };
 
             match result {
@@ -145,13 +340,19 @@ impl<T: EventMessage + Unpin> Connection<T> {
     /// falls through to `connect_async_with_config` exactly as before, so TLS
     /// handling and behavior are unchanged. The cache only maps host→IP; the port
     /// and path always come from `url`, so it can never retarget a connection.
+    ///
+    /// `headers` go on the upgrade request before the handshake on both
+    /// branches. When the set is empty the fallback still hands the bare `url`
+    /// to tungstenite, so the request it writes is the one it always wrote.
     async fn connect_default(
         url: &str,
         config: WebSocketConfig,
+        headers: &ConnectHeaders,
     ) -> Result<WebSocketStream<ConnectStream>> {
         use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
-        if let Ok(request) = url.into_client_request() {
+        if let Ok(mut request) = url.into_client_request() {
+            headers.apply(&mut request);
             let uri = request.uri();
             let is_plain_ws = uri.scheme_str() == Some("ws");
             let host = uri.host().map(str::to_string);
@@ -191,20 +392,35 @@ impl<T: EventMessage + Unpin> Connection<T> {
             }
         }
 
+        if headers.is_empty() {
+            let (ws, _) =
+                tokio_tungstenite::connect_async_with_config(url, Some(config), *DISABLE_NAGLE)
+                    .await?;
+            return Ok(ws);
+        }
+
+        let mut request = url.into_client_request()?;
+        headers.apply(&mut request);
         let (ws, _) =
-            tokio_tungstenite::connect_async_with_config(url, Some(config), *DISABLE_NAGLE).await?;
+            tokio_tungstenite::connect_async_with_config(request, Some(config), *DISABLE_NAGLE)
+                .await?;
         Ok(ws)
     }
 
     /// io_uring path: pre-connect the TCP socket via io_uring, then do WS
     /// handshake over the pre-connected stream.
+    ///
+    /// `headers` go on the upgrade request before the handshake, and travel
+    /// with the fallback to [`Self::connect_default`].
     async fn connect_uring(
         url: &str,
         config: WebSocketConfig,
+        headers: &ConnectHeaders,
     ) -> Result<WebSocketStream<ConnectStream>> {
         use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
-        let request = url.into_client_request()?;
+        let mut request = url.into_client_request()?;
+        headers.apply(&mut request);
         let host = request
             .uri()
             .host()
@@ -217,7 +433,7 @@ impl<T: EventMessage + Unpin> Connection<T> {
             Ok(a) => a,
             Err(_) => {
                 // Hostname needs DNS — fall back to default path.
-                return Self::connect_default(url, config).await;
+                return Self::connect_default(url, config, headers).await;
             }
         };
 
@@ -1124,5 +1340,101 @@ mod ws_read_loop_tests {
             expected.len()
         );
         task.await.expect("reader task join");
+    }
+}
+
+#[cfg(test)]
+mod connect_headers_tests {
+    //! Unit tests for `ConnectHeaders`: the size accounting, replacement,
+    //! the reserved-name guard, and the promise that an empty set leaves an
+    //! upgrade request exactly as tungstenite built it.
+
+    use super::ConnectHeaderError;
+    use super::ConnectHeaders;
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+    use tokio_tungstenite::tungstenite::http::HeaderMap;
+
+    #[test]
+    fn empty_apply_is_a_no_op() {
+        // Two `into_client_request` calls differ in `Sec-WebSocket-Key`, so
+        // snapshot one request and compare it with itself after `apply`.
+        let url = "ws://127.0.0.1:9222/devtools/browser/x";
+        let mut req = url.into_client_request().unwrap();
+        let before = req.headers().clone();
+        ConnectHeaders::new().apply(&mut req);
+        assert_eq!(&before, req.headers());
+    }
+
+    #[test]
+    fn apply_adds_and_replaces_by_name() {
+        let url = "ws://127.0.0.1:9222/devtools/browser/x";
+        let mut req = url.into_client_request().unwrap();
+        let set = ConnectHeaders::new()
+            .with("x-a", "1")
+            .unwrap()
+            .with("x-a", "2")
+            .unwrap()
+            .with("x-b", "3")
+            .unwrap();
+        assert_eq!(set.len(), 2);
+        set.apply(&mut req);
+        assert_eq!(req.headers().get_all("x-a").iter().count(), 1);
+        assert_eq!(req.headers()["x-a"], "2");
+        assert_eq!(req.headers()["x-b"], "3");
+    }
+
+    #[test]
+    fn total_bytes_tracks_replacement() {
+        let mut set = ConnectHeaders::new();
+        set.insert("x-a", "12345").unwrap();
+        // "x-a: 12345\r\n"
+        assert_eq!(set.total_bytes(), 3 + 2 + 5 + 2);
+        set.insert("x-a", "1").unwrap();
+        assert_eq!(set.total_bytes(), 3 + 2 + 1 + 2);
+        set.insert("x-b", "").unwrap();
+        assert_eq!(set.total_bytes(), 8 + 7);
+    }
+
+    #[test]
+    fn limit_counts_the_whole_set() {
+        let half = "x".repeat(ConnectHeaders::MAX_TOTAL_BYTES / 2);
+        let mut set = ConnectHeaders::new();
+        set.insert("x-a", half.as_str()).unwrap();
+        let err = set.insert("x-b", half.as_str()).unwrap_err();
+        assert!(matches!(err, ConnectHeaderError::TooLarge { .. }), "{err}");
+        // A refused insert leaves the set as it was.
+        assert_eq!(set.len(), 1);
+        // Replacing the big one with a small one frees the room back up.
+        set.insert("x-a", "1").unwrap();
+        set.insert("x-b", half.as_str()).unwrap();
+    }
+
+    #[test]
+    fn reserved_names_are_case_insensitive() {
+        for name in ["Host", "CONNECTION", "Upgrade", "Sec-WebSocket-Protocol"] {
+            let err = ConnectHeaders::new().with(name, "x").unwrap_err();
+            assert!(
+                matches!(err, ConnectHeaderError::Reserved(_)),
+                "{name}: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn obs_text_bytes_are_refused() {
+        // `HeaderValue::from_bytes` accepts 0x80..=0xFF; the handshake writer
+        // does not, so the set must not either.
+        let value = tokio_tungstenite::tungstenite::http::HeaderValue::from_bytes(&[0xE9]).unwrap();
+        let err = ConnectHeaders::new().with("x-a", value).unwrap_err();
+        assert!(matches!(err, ConnectHeaderError::NonAscii(_)), "{err}");
+    }
+
+    #[test]
+    fn header_map_conversion_validates_every_entry() {
+        let mut map = HeaderMap::new();
+        map.insert("x-a", "1".parse().unwrap());
+        map.insert("host", "h".parse().unwrap());
+        let err = ConnectHeaders::try_from(map).unwrap_err();
+        assert!(matches!(err, ConnectHeaderError::Reserved(_)), "{err}");
     }
 }
