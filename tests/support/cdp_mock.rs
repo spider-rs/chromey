@@ -37,6 +37,12 @@ struct MockShared {
     /// connection task never blocks on a test that stops draining.
     navigate_params: tokio::sync::mpsc::UnboundedSender<serde_json::Value>,
     injected_loader: AtomicU64,
+    /// Off by default. When on, `Page.setDocumentContent` emits the same
+    /// navigation burst `Page.navigate` does, so an `HttpFuture` built on it
+    /// resolves instead of waiting out the request timeout. Real Chrome
+    /// commits a document for this call; the mock only does it on request so
+    /// no existing test changes shape.
+    commit_set_document_content: std::sync::atomic::AtomicBool,
 }
 
 #[derive(Clone)]
@@ -72,6 +78,7 @@ impl CdpMock {
             navigate_error: Default::default(),
             navigate_params: navigate_tx,
             injected_loader: AtomicU64::new(0),
+            commit_set_document_content: std::sync::atomic::AtomicBool::new(false),
         });
         let shared_clone = shared.clone();
 
@@ -146,6 +153,14 @@ impl CdpMock {
     /// navigations `Browser::new_page` performs during setup.
     pub fn clear_navigate_params(&mut self) {
         let _ = self.drain_navigate_params();
+    }
+
+    /// Make `Page.setDocumentContent` emit the navigation burst, so a caller
+    /// awaiting its `HttpFuture` gets a request back rather than a timeout.
+    pub fn commit_set_document_content(&self) {
+        self.shared
+            .commit_set_document_content
+            .store(true, Ordering::Relaxed);
     }
 
     /// Restore successful navigate acks and completion events.
@@ -296,6 +311,9 @@ async fn handle_connection(stream: tokio::net::TcpStream, shared: Arc<MockShared
                     continue;
                 }
                 let navigate_error = shared.navigate_error.lock().await.clone();
+                let commit_set_content = shared
+                    .commit_set_document_content
+                    .load(Ordering::Relaxed);
                 let outbox = handle_method(
                     &mut state,
                     id,
@@ -303,6 +321,7 @@ async fn handle_connection(stream: tokio::net::TcpStream, shared: Arc<MockShared
                     session_id.as_deref(),
                     &params,
                     navigate_error.as_ref(),
+                    commit_set_content,
                 );
                 for line in outbox {
                     if sink.send(WsMessage::Text(line.into())).await.is_err() {
@@ -325,6 +344,7 @@ fn handle_method(
     session_id: Option<&str>,
     params: &serde_json::Value,
     navigate_error: Option<&NavigateError>,
+    commit_set_content: bool,
 ) -> Vec<String> {
     let mut out = Vec::with_capacity(2);
 
@@ -406,6 +426,24 @@ fn handle_method(
                 out.insert(2, json_response(id, result));
             } else {
                 out.push(json_response(id, result));
+            }
+        }
+
+        "Page.setDocumentContent" if commit_set_content => {
+            let frame_id = session_id
+                .and_then(|s| state.sessions.get(s))
+                .map(|(_t, f, _l)| f.clone())
+                .unwrap_or_else(|| "frame-unknown".into());
+            state.next_loader += 1;
+            let new_loader = format!("loader-{:08x}", state.next_loader);
+            if let Some(sid) = session_id {
+                if let Some(entry) = state.sessions.get_mut(sid) {
+                    entry.2 = new_loader.clone();
+                }
+                out = navigation_burst(sid, &frame_id, &new_loader, "about:blank");
+                out.insert(2, empty_response(id));
+            } else {
+                out.push(empty_response(id));
             }
         }
 
