@@ -16,7 +16,7 @@
 //!   * **Port (and path) are never cached.** The caller's URL supplies them
 //!     verbatim; the key includes the port only to avoid mixing resolutions, and
 //!     the value is purely a list of IPs. An endpoint distinguished by *port*
-//!     (e.g. a per-peer listener) is therefore never confused with another.
+//!     (e.g. one listener per backend) is never confused with another.
 //!   * **IP-literal hosts are never cached** (no DNS to cache — caller bypasses).
 //!   * **`wss://` is never cached here** (caller keeps TLS on the default path).
 //!   * **Invalidate-on-failure + short TTL:** a moved/replaced endpoint
@@ -177,7 +177,7 @@ mod tests {
 
     #[test]
     fn key_includes_port_so_same_host_different_port_are_distinct() {
-        // The port distinguishes endpoints (e.g. per-peer listeners) — caching
+        // The port distinguishes endpoints (one listener per backend) — caching
         // must never collapse two ports of the same host into one entry.
         assert_ne!(key("h2", 9222), key("h2", 9223));
         store(key("h2", 9222), Arc::from(vec![sa(9222)].into_boxed_slice()));

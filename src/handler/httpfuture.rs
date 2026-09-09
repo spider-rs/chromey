@@ -19,8 +19,8 @@ const ERR_ABORTED: &str = "net::ERR_ABORTED";
 
 /// ERR_ABORTED can mean a redirect, download, or second navigate superseded
 /// this navigation; keep waiting for its replacement. HTTP response code
-/// failures can still commit a 4xx/5xx body and fire lifecycle events; navi
-/// appends the status (e.g. " (403)"), so that exception uses a prefix match.
+/// failures can still commit a 4xx/5xx body and fire lifecycle events, and the
+/// status may be appended (e.g. " (403)"), so that exception uses a prefix match.
 pub fn navigation_continues(err: &str) -> bool {
     err == ERR_ABORTED || err.starts_with("net::ERR_HTTP_RESPONSE_CODE_FAILURE")
 }

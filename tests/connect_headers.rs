@@ -14,7 +14,7 @@ use chromiumoxide::handler::HandlerConfig;
 use chromiumoxide::{Browser, BrowserConfig};
 use tokio_tungstenite::tungstenite::http::HeaderMap;
 
-const NAME: &str = "x-spider-request-id";
+const NAME: &str = "x-request-id";
 const VALUE: &str = "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0";
 
 /// The header names tungstenite writes on its own for a bare URL. Anything
