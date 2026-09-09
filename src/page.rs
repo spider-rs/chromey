@@ -738,8 +738,38 @@ impl Page {
         params: impl Into<NavigateParams>,
         auth_opt: Option<&str>,
     ) -> Result<Arc<crate::HttpRequest>> {
+        self.goto_with_cache_http_future_inner(params.into(), auth_opt, None)
+            .await
+    }
+
+    /// [`Self::goto_with_cache_http_future`] with an optional server-side
+    /// navigation deadline.
+    ///
+    /// A cache hit sets the document content and never navigates, so the
+    /// deadline only applies on a miss. On a miss, `Some(d)` sends
+    /// `Page.navigate` through [`Self::navigate_http_future_with_timeout`]
+    /// with `d` in whole milliseconds under the `timeout` key; `None` sends
+    /// the same request [`Self::goto_with_cache_http_future`] does, with no
+    /// `timeout` key at all.
+    #[cfg(feature = "_cache")]
+    pub async fn goto_with_cache_http_future_with_timeout(
+        &self,
+        params: impl Into<NavigateParams>,
+        auth_opt: Option<&str>,
+        navigation_timeout: Option<std::time::Duration>,
+    ) -> Result<Arc<crate::HttpRequest>> {
+        self.goto_with_cache_http_future_inner(params.into(), auth_opt, navigation_timeout)
+            .await
+    }
+
+    #[cfg(feature = "_cache")]
+    async fn goto_with_cache_http_future_inner(
+        &self,
+        navigate_params: NavigateParams,
+        auth_opt: Option<&str>,
+        navigation_timeout: Option<std::time::Duration>,
+    ) -> Result<Arc<crate::HttpRequest>> {
         use crate::cache::{get_cached_url, rewrite_base_tag};
-        let navigate_params: NavigateParams = params.into();
         let mut force_navigate = true;
         let mut navigation_result = None;
 
@@ -780,7 +810,17 @@ impl Page {
         }
 
         if force_navigate {
-            if let Ok(page_base) = self.navigate_http_future(navigate_params) {
+            // The two navigate futures carry different param types, so pick
+            // the arm first and await one shape.
+            let page_base = match navigation_timeout {
+                Some(deadline) => self
+                    .navigate_http_future_with_timeout(navigate_params, deadline)
+                    .map(futures_util::future::Either::Left),
+                None => self
+                    .navigate_http_future(navigate_params)
+                    .map(futures_util::future::Either::Right),
+            };
+            if let Ok(page_base) = page_base {
                 let http_result = page_base.await?;
 
                 if let Some(res) = &http_result {
@@ -956,6 +996,7 @@ impl Page {
         remote: Option<&str>,
         intercept_enabled: Option<bool>,
         namespace: Option<&str>,
+        navigation_timeout: Option<std::time::Duration>,
     ) -> Result<Arc<crate::HttpRequest>> {
         let remote = remote.or(Some("true"));
         let target_url = navigate_params.url.clone();
@@ -992,7 +1033,7 @@ impl Page {
         );
 
         let cache_future = self
-            .goto_with_cache_http_future(navigate_params, auth_opt)
+            .goto_with_cache_http_future_inner(navigate_params, auth_opt, navigation_timeout)
             .await;
         let _ = self.clear_local_cache(&cache_site);
 
@@ -1020,6 +1061,7 @@ impl Page {
             remote,
             Some(true),
             namespace,
+            None,
         )
         .await
     }
@@ -1045,6 +1087,41 @@ impl Page {
             remote,
             Some(false),
             namespace,
+            None,
+        )
+        .await
+    }
+
+    /// [`Self::http_future_with_cache_intercept_enabled`] with an optional
+    /// server-side navigation deadline.
+    ///
+    /// Same cache lookup, listener, and seeding as the plain variant. A cache
+    /// hit sets the document content and never navigates, so the deadline
+    /// only applies on a miss. On a miss, `Some(d)` sends `Page.navigate`
+    /// through [`Self::navigate_http_future_with_timeout`] with `d` in whole
+    /// milliseconds under the `timeout` key. `None` sends the same request
+    /// the plain variant does, with no `timeout` key at all. Servers that do
+    /// not implement the key ignore it and navigate as usual.
+    #[cfg(feature = "_cache")]
+    pub async fn http_future_with_cache_intercept_enabled_with_timeout(
+        &self,
+        navigate_params: crate::cdp::browser_protocol::page::NavigateParams,
+        auth_opt: Option<&str>,
+        cache_policy: Option<crate::cache::BasicCachePolicy>,
+        cache_strategy: Option<crate::cache::CacheStrategy>,
+        remote: Option<&str>,
+        namespace: Option<&str>,
+        navigation_timeout: Option<std::time::Duration>,
+    ) -> Result<Arc<crate::HttpRequest>> {
+        self._http_future_with_cache(
+            navigate_params,
+            auth_opt,
+            cache_policy,
+            cache_strategy,
+            remote,
+            Some(false),
+            namespace,
+            navigation_timeout,
         )
         .await
     }
