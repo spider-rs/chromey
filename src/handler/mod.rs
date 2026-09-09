@@ -1565,6 +1565,12 @@ pub struct HandlerConfig {
     /// Number of WebSocket connection retry attempts with exponential backoff.
     /// Defaults to 4.
     pub connection_retries: u32,
+    /// Headers added to the CDP WebSocket upgrade request, so a gateway in
+    /// front of the browser can read them off the handshake. Unrelated to
+    /// `extra_headers`, which go on the page's network requests. Sent on
+    /// every connect attempt. Empty by default, which leaves the upgrade
+    /// untouched.
+    pub connect_headers: crate::conn::ConnectHeaders,
 }
 
 impl Default for HandlerConfig {
@@ -1601,6 +1607,7 @@ impl Default for HandlerConfig {
             channel_capacity: 4096,
             page_channel_capacity: crate::handler::page::DEFAULT_PAGE_CHANNEL_CAPACITY,
             connection_retries: crate::conn::DEFAULT_CONNECTION_RETRIES,
+            connect_headers: Default::default(),
         }
     }
 }
