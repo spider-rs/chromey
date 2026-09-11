@@ -96,6 +96,57 @@ fn collect_scopes_iterative(root: &Node) -> Vec<NodeId> {
 
     let mut scopes = Vec::new();
     let mut seen: HashSet<NodeId> = HashSet::new();
+    // (node, is_tree_root): only tree roots are recorded as scopes
+    let mut stack: Vec<(&Node, bool)> = Vec::new();
+
+    stack.push((root, true));
+
+    while let Some((n, is_tree_root)) = stack.pop() {
+        // A node is a scope only when it roots its own tree: the document
+        // root passed in, a shadow root, or an iframe's content document.
+        // Plain children share their ancestor's tree, so a query on the
+        // tree root already covers them and recording them would only
+        // produce duplicates the caller has to throw away.
+        if is_tree_root && seen.insert(n.node_id) {
+            scopes.push(n.node_id);
+        }
+
+        if let Some(shadow_roots) = n.shadow_roots.as_ref() {
+            // push in reverse to preserve roughly DOM order (optional)
+            for sr in shadow_roots.iter().rev() {
+                stack.push((sr, true));
+            }
+        }
+
+        if let Some(cd) = n.content_document.as_ref() {
+            stack.push((cd, true));
+        }
+
+        if let Some(children) = n.children.as_ref() {
+            for c in children.iter().rev() {
+                stack.push((c, false));
+            }
+        }
+    }
+
+    scopes
+}
+
+/// Every node in the pierced tree, in the same walk order as
+/// [`collect_scopes_iterative`].
+///
+/// Only used for a selector that contains `:scope`. `:scope` resolves to the
+/// node a query is rooted at, so unlike every other selector its match set is
+/// genuinely different per scope and the tree-root reduction would change the
+/// answer. Measured on youtube.com: `:scope > div` returns 602 ids when every
+/// node is queried and 0 when only tree roots are. Neither number is
+/// especially meaningful for a page-wide pierced search, but the first one is
+/// what this function has always returned, so it is preserved.
+fn collect_all_nodes_iterative(root: &Node) -> Vec<NodeId> {
+    use hashbrown::HashSet;
+
+    let mut scopes = Vec::new();
+    let mut seen: HashSet<NodeId> = HashSet::new();
     let mut stack: Vec<&Node> = Vec::new();
 
     stack.push(root);
@@ -106,7 +157,6 @@ fn collect_scopes_iterative(root: &Node) -> Vec<NodeId> {
         }
 
         if let Some(shadow_roots) = n.shadow_roots.as_ref() {
-            // push in reverse to preserve roughly DOM order (optional)
             for sr in shadow_roots.iter().rev() {
                 stack.push(sr);
             }
@@ -124,6 +174,20 @@ fn collect_scopes_iterative(root: &Node) -> Vec<NodeId> {
     }
 
     scopes
+}
+
+/// Does this selector contain the `:scope` pseudo-class?
+///
+/// ASCII case-insensitive, because CSS pseudo-class names are. A selector that
+/// merely carries the text `:scope` inside an attribute value takes the slow
+/// path it does not need, which costs time and never correctness.
+fn selector_is_scope_relative(selector: &str) -> bool {
+    const NEEDLE: &[u8] = b":scope";
+    let bytes = selector.as_bytes();
+    bytes.len() >= NEEDLE.len()
+        && bytes
+            .windows(NEEDLE.len())
+            .any(|w| w.eq_ignore_ascii_case(NEEDLE))
 }
 
 #[derive(Debug, Clone)]
@@ -1552,7 +1616,16 @@ impl Page {
         let selector = selector.into();
 
         let root = self.get_document().await?;
-        let scopes = collect_scopes_iterative(&root);
+        // One query per TREE, not one per node: a query rooted at a descendant
+        // can only return ids its tree root already returned, and the dedup
+        // below drops them. Shadow roots and iframe documents are separate
+        // trees, so they keep their own query. `:scope` is the one selector
+        // shape whose match set really is per-scope, so it keeps the old walk.
+        let scopes = if selector_is_scope_relative(&selector) {
+            collect_all_nodes_iterative(&root)
+        } else {
+            collect_scopes_iterative(&root)
+        };
 
         let mut all = Vec::new();
         let mut node_seen = hashbrown::HashSet::new();
@@ -3791,5 +3864,182 @@ impl From<MediaTypeParams> for String {
             MediaTypeParams::Screen => "screen".to_string(),
             MediaTypeParams::Print => "print".to_string(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A bare node with the given id.
+    fn node(id: i64) -> Node {
+        Node {
+            node_id: NodeId::new(id),
+            ..Default::default()
+        }
+    }
+
+    /// A node with the given id and plain children.
+    fn with_children(id: i64, children: Vec<Node>) -> Node {
+        Node {
+            children: Some(children),
+            ..node(id)
+        }
+    }
+
+    /// A node with the given id and shadow roots.
+    fn with_shadow_roots(id: i64, shadow_roots: Vec<Node>) -> Node {
+        Node {
+            shadow_roots: Some(shadow_roots),
+            ..node(id)
+        }
+    }
+
+    #[test]
+    fn collect_scopes_flat_tree_yields_only_the_root() {
+        // 20 children x 9 grandchildren = 200 descendants, 3 levels deep,
+        // no shadow roots and no content documents.
+        let mut next_id = 2i64;
+        let children: Vec<Node> = (0..20)
+            .map(|_| {
+                let parent_id = next_id;
+                next_id += 1;
+                let grandchildren: Vec<Node> = (0..9)
+                    .map(|_| {
+                        let id = next_id;
+                        next_id += 1;
+                        node(id)
+                    })
+                    .collect();
+                with_children(parent_id, grandchildren)
+            })
+            .collect();
+        let root = with_children(1, children);
+
+        let scopes = collect_scopes_iterative(&root);
+
+        assert_eq!(scopes, vec![NodeId::new(1)]);
+    }
+
+    #[test]
+    fn collect_scopes_includes_every_shadow_root() {
+        // host2 sits inside host1: two shadow hosts at different depths.
+        let host2 = with_shadow_roots(3, vec![node(4)]);
+        let host1 = Node {
+            children: Some(vec![host2]),
+            ..with_shadow_roots(2, vec![node(5)])
+        };
+        let root = with_children(1, vec![host1]);
+
+        let scopes = collect_scopes_iterative(&root);
+
+        assert_eq!(scopes.len(), 3);
+        assert_eq!(scopes[0], NodeId::new(1));
+        assert!(scopes.contains(&NodeId::new(4)));
+        assert!(scopes.contains(&NodeId::new(5)));
+    }
+
+    #[test]
+    fn collect_scopes_includes_nested_shadow_roots() {
+        // a shadow root that itself hosts a shadow root
+        let inner_host = with_shadow_roots(4, vec![node(5)]);
+        let outer_shadow_root = with_children(3, vec![inner_host]);
+        let host = with_shadow_roots(2, vec![outer_shadow_root]);
+        let root = with_children(1, vec![host]);
+
+        let scopes = collect_scopes_iterative(&root);
+
+        assert_eq!(scopes, vec![NodeId::new(1), NodeId::new(3), NodeId::new(5)]);
+    }
+
+    #[test]
+    fn collect_scopes_includes_content_documents() {
+        // an iframe whose content document has children of its own
+        let content_document = with_children(3, vec![node(4), node(5)]);
+        let iframe = Node {
+            content_document: Some(Box::new(content_document)),
+            ..node(2)
+        };
+        let root = with_children(1, vec![iframe]);
+
+        let scopes = collect_scopes_iterative(&root);
+
+        assert_eq!(scopes, vec![NodeId::new(1), NodeId::new(3)]);
+    }
+
+    #[test]
+    fn collect_scopes_skips_plain_children_of_a_shadow_host() {
+        // a shadow host with both ordinary children and a shadow root
+        let host = Node {
+            children: Some(vec![node(3)]),
+            ..with_shadow_roots(2, vec![node(4)])
+        };
+        let root = with_children(1, vec![host]);
+
+        let scopes = collect_scopes_iterative(&root);
+
+        assert_eq!(scopes, vec![NodeId::new(1), NodeId::new(4)]);
+    }
+
+    #[test]
+    fn scope_relative_selectors_keep_every_node() {
+        // `:scope` is per-query, so the tree-root reduction would change the
+        // answer. These are the shapes that must take the old walk.
+        assert!(selector_is_scope_relative(":scope > div"));
+        assert!(selector_is_scope_relative("  :scope div  "));
+        assert!(selector_is_scope_relative(":SCOPE > div"));
+        assert!(selector_is_scope_relative("div:has(:scope)"));
+        // and the shapes that must not
+        assert!(!selector_is_scope_relative("div"));
+        assert!(!selector_is_scope_relative("body > div"));
+        assert!(!selector_is_scope_relative("iframe[src*=\"/recaptcha/api2/anchor\"]"));
+        assert!(!selector_is_scope_relative("#recaptcha-anchor"));
+        assert!(!selector_is_scope_relative(""));
+        assert!(!selector_is_scope_relative(":scop"));
+    }
+
+    #[test]
+    fn the_two_collectors_differ_exactly_by_the_non_root_nodes() {
+        // The fallback must still be the old behaviour, node for node: this is
+        // what a `:scope` selector gets, and it is the only thing keeping that
+        // path from regressing.
+        let tree = with_children(
+            1,
+            vec![
+                with_children(2, vec![node(3), node(4)]),
+                with_shadow_roots(5, vec![with_children(6, vec![node(7)])]),
+            ],
+        );
+        assert_eq!(
+            collect_scopes_iterative(&tree),
+            vec![NodeId::new(1), NodeId::new(6)]
+        );
+        assert_eq!(
+            collect_all_nodes_iterative(&tree),
+            vec![
+                NodeId::new(1),
+                NodeId::new(2),
+                NodeId::new(3),
+                NodeId::new(4),
+                NodeId::new(5),
+                NodeId::new(6),
+                NodeId::new(7),
+            ]
+        );
+    }
+
+    #[test]
+    fn collect_scopes_dedupes_repeated_ids() {
+        // node id 2 appears as a shadow root and twice as a plain child;
+        // it must be recorded exactly once.
+        let root = Node {
+            shadow_roots: Some(vec![node(2)]),
+            children: Some(vec![node(2), node(3)]),
+            ..node(1)
+        };
+
+        let scopes = collect_scopes_iterative(&root);
+
+        assert_eq!(scopes, vec![NodeId::new(1), NodeId::new(2)]);
     }
 }
