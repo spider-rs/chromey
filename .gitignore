@@ -3,4 +3,5 @@ target
 Cargo.lock
 .idea/
 .DS_Store
-http-cacachegraphify-out/
+http-cacache
+graphify-out/
