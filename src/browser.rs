@@ -121,6 +121,11 @@ impl Browser {
         url: impl Into<String>,
         config: HandlerConfig,
     ) -> Result<(Self, Handler)> {
+        // Put chromey's client in place before any remote cache call can
+        // make spider_remote_cache build its own default.
+        #[cfg(feature = "_cache")]
+        crate::cache::remote::install_cache_client();
+
         let mut debug_ws_url = url.into();
         let retries = config.connection_retries;
 
@@ -251,6 +256,9 @@ impl Browser {
         // This is a single atomic load after the first call — safe
         // and cheap to invoke on every `launch`.
         crate::bg_cleanup::init_worker();
+
+        #[cfg(feature = "_cache")]
+        crate::cache::remote::install_cache_client();
 
         // Canonalize paths to reduce issues with sandboxing
         config.executable = utils::canonicalize_except_snap(config.executable).await?;
