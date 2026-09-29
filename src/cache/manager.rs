@@ -540,6 +540,29 @@ pub fn site_key_for_target_url(
     hex::encode(blake3::hash(input.as_bytes()).as_bytes()) // 64 hex chars, path-safe
 }
 
+/// True when `s` is already a site key as produced by
+/// [`site_key_for_target_url`]: exactly 64 lowercase hex characters (a hex
+/// blake3 digest). No URL has that shape, since a URL needs a scheme.
+#[inline]
+pub fn is_site_key(s: &str) -> bool {
+    s.len() == 64 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+}
+
+/// Site key for the response listener.
+///
+/// `target` may be either the navigation URL or a site key that the caller
+/// already computed with [`site_key_for_target_url`]. A site key is used as
+/// is; anything else is hashed with `auth` and `namespace`. Hashing a site
+/// key a second time filed every listener dump under a key no read looks
+/// up, and split the per-session cache from the one the interceptor reads.
+pub fn listener_site_key(target: &str, auth: Option<&str>, namespace: Option<&str>) -> String {
+    if is_site_key(target) {
+        target.to_string()
+    } else {
+        site_key_for_target_url(target, auth, namespace)
+    }
+}
+
 /// Returns true if the body should NOT be cached (empty, near-empty, or known-bad HTML).
 ///
 /// HTML-specific heuristics (empty `<body>`, skeleton pages) are only applied
