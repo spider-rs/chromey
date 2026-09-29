@@ -64,7 +64,7 @@ serde_stacker = { version = "0.1", optional = true }
 blake3 = { version = "1", optional = true }
 hex = { version = "0.4", optional = true }
 dashmap = { version = "6" }
-spider_remote_cache = { version = "0.3", optional = true, default-features = false }
+spider_remote_cache = { version = "0.5", optional = true, default-features = false }
 
 [dependencies.spider_fingerprint]
 version = "2"
@@ -96,7 +96,7 @@ futures-util = "0.3"
 anyhow = "1"
 criterion = { version = "0.5", features = ["html_reports"] }
 tempfile = "3.27.0"
-spider_remote_cache = { version = "0.3", default-features = false }
+spider_remote_cache = { version = "0.5", default-features = false }
 dashmap = "6"
 
 [features]

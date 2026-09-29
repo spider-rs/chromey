@@ -32,15 +32,18 @@ lazy_static! {
 /// client. Idempotent; only the first call does anything.
 ///
 /// `spider_remote_cache` keeps the first client it sees for the life of the
-/// process and otherwise builds its own default, which in 0.3 has no
-/// timeout. This runs at browser construction and at the top of every
-/// remote cache read, so a read can no longer build that default before
-/// chromey's client is in place. A host that wants its own client must
-/// call `spider_remote_cache::set_client` before creating a browser.
+/// process and otherwise builds its own default. This runs at browser
+/// construction and at the top of every remote cache read, so a read can
+/// no longer build that default before chromey's client is in place. A
+/// host that wants its own client must call
+/// `spider_remote_cache::set_client` before creating a browser.
+///
+/// Uses `try_set_client`, so when the host already installed a client
+/// this keeps it and logs nothing. `set_client` would warn on that path.
 pub fn install_cache_client() {
     static INSTALLED: std::sync::Once = std::sync::Once::new();
     INSTALLED.call_once(|| {
-        spider_remote_cache::set_client(crate::browser::request_client().clone());
+        let _ = spider_remote_cache::try_set_client(crate::browser::request_client().clone());
     });
 }
 
