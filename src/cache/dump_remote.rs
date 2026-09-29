@@ -16,7 +16,7 @@ pub use spider_remote_cache::worker::{
 /// Init the cache worker, injecting chromey's `REQUEST_CLIENT` so the
 /// remote cache uploads share the same connection pool and TLS config.
 pub async fn init_default_cache_worker() {
-    // Inject chromey's pre-configured client (first call wins).
-    spider_remote_cache::set_client(crate::browser::request_client().clone());
+    // Normally already done at browser construction; idempotent.
+    crate::cache::remote::install_cache_client();
     spider_remote_cache::init_default_worker().await;
 }

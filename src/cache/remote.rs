@@ -28,6 +28,117 @@ lazy_static! {
     pub(crate) static ref PENDING_STREAM_URLS: dashmap::DashSet<String> = dashmap::DashSet::new();
 }
 
+/// Install chromey's configured `reqwest::Client` as the remote cache
+/// client. Idempotent; only the first call does anything.
+///
+/// `spider_remote_cache` keeps the first client it sees for the life of the
+/// process and otherwise builds its own default, which in 0.3 has no
+/// timeout. This runs at browser construction and at the top of every
+/// remote cache read, so a read can no longer build that default before
+/// chromey's client is in place. A host that wants its own client must
+/// call `spider_remote_cache::set_client` before creating a browser.
+pub fn install_cache_client() {
+    static INSTALLED: std::sync::Once = std::sync::Once::new();
+    INSTALLED.call_once(|| {
+        spider_remote_cache::set_client(crate::browser::request_client().clone());
+    });
+}
+
+/// Default bound on the remote seed GET, in milliseconds.
+pub const DEFAULT_REMOTE_SEED_TIMEOUT_MS: u64 = 1_500;
+
+const SEED_UNSET: u64 = u64::MAX;
+static SEED_TIMEOUT_OVERRIDE_MS: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(SEED_UNSET);
+/// 0 = unset (use env), 1 = do not skip, 2 = skip.
+static SEED_SKIP_OVERRIDE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+fn env_seed_timeout_ms() -> u64 {
+    static V: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        std::env::var("CHROMEY_REMOTE_CACHE_SEED_TIMEOUT_MS")
+            .ok()
+            .and_then(|v| v.trim().parse().ok())
+            .unwrap_or(DEFAULT_REMOTE_SEED_TIMEOUT_MS)
+    })
+}
+
+fn env_seed_skip() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        matches!(
+            std::env::var("CHROMEY_REMOTE_CACHE_SKIP_SEED")
+                .ok()
+                .as_deref()
+                .map(str::trim),
+            Some("1") | Some("true") | Some("TRUE") | Some("yes")
+        )
+    })
+}
+
+/// Override the bound on remote cache reads (the seed GET in
+/// [`get_cache_site`] and [`get_cache_resource`]). `None` restores the env
+/// value `CHROMEY_REMOTE_CACHE_SEED_TIMEOUT_MS` (default 1500 ms).
+/// `Some(Duration::ZERO)` removes the bound.
+pub fn set_remote_seed_timeout(timeout: Option<std::time::Duration>) {
+    let v = match timeout {
+        Some(d) => (d.as_millis() as u64).min(SEED_UNSET - 1),
+        None => SEED_UNSET,
+    };
+    SEED_TIMEOUT_OVERRIDE_MS.store(v, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The bound applied to remote cache reads, or `None` when unbounded.
+pub fn remote_seed_timeout() -> Option<std::time::Duration> {
+    let ms = match SEED_TIMEOUT_OVERRIDE_MS.load(std::sync::atomic::Ordering::Relaxed) {
+        SEED_UNSET => env_seed_timeout_ms(),
+        v => v,
+    };
+    (ms > 0).then(|| std::time::Duration::from_millis(ms))
+}
+
+/// Skip the remote seed GET entirely. `None` restores the env value
+/// `CHROMEY_REMOTE_CACHE_SKIP_SEED` (`1` skips; default off). Skipping
+/// leaves local caching and remote dumps unchanged.
+pub fn set_skip_remote_seed(skip: Option<bool>) {
+    let v = match skip {
+        None => 0,
+        Some(false) => 1,
+        Some(true) => 2,
+    };
+    SEED_SKIP_OVERRIDE.store(v, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Whether the remote seed GET is skipped.
+pub fn skip_remote_seed() -> bool {
+    match SEED_SKIP_OVERRIDE.load(std::sync::atomic::Ordering::Relaxed) {
+        1 => false,
+        2 => true,
+        _ => env_seed_skip(),
+    }
+}
+
+/// Run a remote cache read under [`remote_seed_timeout`]. Returns `false`
+/// when the bound fired; the in-flight request is dropped with the future.
+async fn bounded_read<F: std::future::Future<Output = ()>>(what: &str, key: &str, fut: F) -> bool {
+    match remote_seed_timeout() {
+        Some(limit) => {
+            if tokio::time::timeout(limit, fut).await.is_err() {
+                tracing::warn!(
+                    "remote cache {what}: timed out after {}ms for {key}, continuing without it",
+                    limit.as_millis()
+                );
+                return false;
+            }
+            true
+        }
+        None => {
+            fut.await;
+            true
+        }
+    }
+}
+
 /// Convert a `spider_remote_cache::HttpVersion` to an `http_cache::HttpVersion`.
 fn remote_version_to_http_cache(v: spider_remote_cache::HttpVersion) -> http_cache::HttpVersion {
     match v {
@@ -74,15 +185,34 @@ pub async fn dump_to_remote_cache(
 
 /// Get the cache for a website from the remote cache server and seed
 /// our local hybrid cache (CACACHE_MANAGER) with **all** entries [experimental].
+///
+/// Bounded by [`remote_seed_timeout`] (env
+/// `CHROMEY_REMOTE_CACHE_SEED_TIMEOUT_MS`, default 1500 ms) and skipped
+/// when [`skip_remote_seed`] is set (env `CHROMEY_REMOTE_CACHE_SKIP_SEED=1`).
+/// On timeout it returns with whatever entries were already seeded, so a
+/// slow or blackholed cache server can no longer hold up navigation.
 pub async fn get_cache_site(
     target_url: &str,
     auth: Option<&str>,
     remote: Option<&str>,
     namespace: Option<&str>,
 ) {
-    let base_url = spider_remote_cache::resolve_base_url(remote);
-
+    if skip_remote_seed() {
+        return;
+    }
+    install_cache_client();
     let cache_key = site_key_for_target_url(target_url, auth, namespace);
+    bounded_read(
+        "get",
+        &cache_key,
+        get_cache_site_inner(&cache_key, target_url, remote),
+    )
+    .await;
+}
+
+async fn get_cache_site_inner(cache_key: &str, target_url: &str, remote: Option<&str>) {
+    let cache_key = cache_key.to_string();
+    let base_url = spider_remote_cache::resolve_base_url(remote);
 
     let endpoint = format!("{}/cache/site/{}", base_url, cache_key);
 
@@ -143,15 +273,27 @@ pub async fn get_cache_site(
 
 /// Get the cache for a resource from the remote cache server and seed
 /// our local hybrid cache (CACACHE_MANAGER) with **all** entries [experimental].
+///
+/// Bounded by [`remote_seed_timeout`] like [`get_cache_site`].
 pub async fn get_cache_resource(
     target_url: &str,
     auth: Option<&str>,
     remote: Option<&str>,
     namespace: Option<&str>,
 ) {
-    let base_url = spider_remote_cache::resolve_base_url(remote);
-
+    install_cache_client();
     let cache_key = site_key_for_target_url(target_url, auth, namespace);
+    bounded_read(
+        "get resource",
+        &cache_key,
+        get_cache_resource_inner(&cache_key, target_url, remote),
+    )
+    .await;
+}
+
+async fn get_cache_resource_inner(cache_key: &str, target_url: &str, remote: Option<&str>) {
+    let cache_key = cache_key.to_string();
+    let base_url = spider_remote_cache::resolve_base_url(remote);
 
     let endpoint = format!("{}/cache/resource/{}", base_url, cache_key);
 

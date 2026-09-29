@@ -3363,8 +3363,19 @@ impl Page {
     #[cfg(feature = "_cache")]
     /// Spawn a cache listener to store resources to memory. This does nothing without the 'cache' flag.
     /// You can pass an endpoint to `dump_remote` to store the cache to a url endpoint.
-    /// The cache_site is used to track all the urls from the point of navigation like page.goto.
     /// Set the value to Some("true") to use the default endpoint.
+    ///
+    /// `target_url` names the site every captured response is filed under,
+    /// the same key [`Page::seed_cache`] reads. Pass either:
+    ///
+    /// - the navigation URL, which is hashed with `auth` and `namespace`
+    ///   through [`crate::cache::manager::site_key_for_target_url`], or
+    /// - the site key that function already returned (64 lowercase hex
+    ///   characters), which is used as is. `auth` and `namespace` do not
+    ///   change it in that case.
+    ///
+    /// Before 2.58.3 a site key was hashed again, so listener dumps were
+    /// filed under a key no read ever used.
     ///
     /// Set `dump_readonly = true` to keep local caching + per-session
     /// cache active but suppress the outbound POST to the remote cache
@@ -3396,7 +3407,7 @@ impl Page {
         }
 
         let cache_site =
-            crate::cache::manager::site_key_for_target_url(target_url, auth.as_deref(), namespace);
+            crate::cache::manager::listener_site_key(target_url, auth.as_deref(), namespace);
 
         let handle = crate::cache::spawn_response_cache_listener(
             self.clone(),
