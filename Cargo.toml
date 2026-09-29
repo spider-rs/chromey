@@ -54,8 +54,8 @@ spider_chromiumoxide_types = { path = "types", version = "0.7.6" }
 spider_chromiumoxide_cdp = { path = "cdp", version = "0.7" }
 spider_chromiumoxide_fetcher = { path = "fetcher", version = "0.8", default-features = false, optional = true }
 http-cache-semantics = { version = "3", optional = true }
-http-cache = { version = "1.0.0-alpha.5", optional = true, default-features = false, features = ["url-standard"] }
-http-cache-reqwest = { version = "1.0.0-alpha.5", optional = true, default-features = false }
+http-cache = { version = "=1.0.0-alpha.7", optional = true, default-features = false, features = ["url-standard"] }
+http-cache-reqwest = { version = "=1.0.0-alpha.7", optional = true, default-features = false }
 http-global-cache = { version = "0.2.0", optional = true, default-features = false, features = ["cache_request"] }
 lol_html = { version = "2", optional = true }
 tokio-stream =  { version = "0.1", optional = true }
