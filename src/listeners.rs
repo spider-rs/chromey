@@ -131,8 +131,11 @@ impl EventListeners {
 
         for subscriptions in self.listeners.values_mut() {
             subscriptions.retain_mut(|sub| match sub.flush() {
-                Ok(()) => true,
-                Err(_) => {
+                // A dropped `EventStream` only surfaces as a send error, which
+                // needs a queued event. Check the channel too, so a listener
+                // for an event that never fires again is still pruned.
+                Ok(()) if !sub.listener.is_closed() => true,
+                _ => {
                     any_disconnected = true;
                     false
                 }
@@ -153,8 +156,11 @@ impl EventListeners {
 
         for subscriptions in self.listeners.values_mut() {
             subscriptions.retain_mut(|sub| match sub.flush() {
-                Ok(()) => true,
-                Err(_) => {
+                // A dropped `EventStream` only surfaces as a send error, which
+                // needs a queued event. Check the channel too, so a listener
+                // for an event that never fires again is still pruned.
+                Ok(()) if !sub.listener.is_closed() => true,
+                _ => {
                     any_disconnected = true;
                     false
                 }
@@ -299,6 +305,42 @@ mod tests {
     use chromiumoxide_types::{MethodId, MethodType};
 
     use super::*;
+
+    /// A listener whose `EventStream` was dropped must be pruned on the next
+    /// flush even if its event never fires again. Before, a closed listener
+    /// was only noticed when an event for its method was sent to it.
+    #[test]
+    fn flush_prunes_closed_listeners_without_pending_events() {
+        let mut listeners = EventListeners::default();
+        let (live_tx, _live_rx) = tokio::sync::mpsc::unbounded_channel();
+        listeners.add_listener(EventListenerRequest::new::<EventAnimationCanceled>(live_tx));
+        for _ in 0..1_000 {
+            let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+            listeners.add_listener(EventListenerRequest::new::<EventAnimationCanceled>(tx));
+            drop(rx);
+        }
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        listeners.add_listener(EventListenerRequest::new::<
+            chromiumoxide_cdp::cdp::browser_protocol::animation::EventAnimationStarted,
+        >(tx));
+        drop(rx);
+
+        listeners.flush();
+        let remaining: usize = listeners.listeners.values().map(Vec::len).sum();
+        assert_eq!(remaining, 1, "only the live listener may remain");
+        assert_eq!(listeners.listeners.len(), 1, "empty method entries removed");
+
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        listeners.add_listener(EventListenerRequest::new::<
+            chromiumoxide_cdp::cdp::browser_protocol::animation::EventAnimationStarted,
+        >(tx));
+        drop(rx);
+        listeners.poll(&mut Context::from_waker(
+            futures_util::task::noop_waker_ref(),
+        ));
+        let remaining: usize = listeners.listeners.values().map(Vec::len).sum();
+        assert_eq!(remaining, 1, "poll prunes the same way");
+    }
 
     #[tokio::test]
     async fn event_stream() {
