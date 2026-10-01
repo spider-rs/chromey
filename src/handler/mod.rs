@@ -607,6 +607,30 @@ impl Handler {
                 self.sessions.remove(session);
             }
         }
+        self.release_navigations(&event.target_id, "target destroyed");
+    }
+
+    /// Fail every navigation still tracked for `target_id`.
+    ///
+    /// Once `Page.navigate` is acked, the entry waits only on the target's
+    /// frame manager for its lifecycle event or deadline. Removing the target
+    /// drops that frame manager, so without this the entry, its stored
+    /// response, and the caller's oneshot would stay in `navigations` for the
+    /// life of the handler.
+    fn release_navigations(&mut self, target_id: &TargetId, reason: &str) {
+        let ids: Vec<NavigationId> = self
+            .navigations
+            .iter()
+            .filter(|(_, NavigationRequest::Navigate(tid, _))| tid == target_id)
+            .map(|(id, _)| *id)
+            .collect();
+        for id in ids {
+            if let Some(NavigationRequest::Navigate(_, nav)) = self.navigations.remove(&id) {
+                let _ = nav
+                    .tx
+                    .send(Err(CdpError::msg(format!("{reason}: {target_id:?}"))));
+            }
+        }
     }
 
     /// Fired when a target has crashed (`Target.targetCrashed`).
@@ -628,9 +652,9 @@ impl Handler {
     /// * `ExternalCommand { target_id: None, .. }` — left alone;
     ///   browser-level or pre-attach-race commands aren't bound to
     ///   this target.
-    /// * `Navigate(_)` and entries in `self.navigations` — left to
-    ///   the normal timeout path; `on_navigation_response` drops
-    ///   late responses once the target is removed below.
+    /// * Entries in `self.navigations` for the crashed target — failed
+    ///   with the same crash error; a `Navigate(_)` pending command left
+    ///   behind finds no entry and is a no-op when it later times out.
     fn on_target_crashed(&mut self, event: EventTargetCrashed) {
         let crashed_id = event.target_id.clone();
         let status = event.status.clone();
@@ -679,6 +703,10 @@ impl Handler {
                 self.sessions.remove(session);
             }
         }
+        self.release_navigations(
+            &crashed_id,
+            &format!("target crashed: {} (errorCode={})", status, error_code),
+        );
     }
 
     /// House keeping of commands
@@ -1753,6 +1781,120 @@ mod tests {
             Some("session-1"),
             "attach response should seed the flat session id even before Target.attachedToTarget"
         );
+    }
+
+    /// Accepts one WebSocket connection and holds it open without answering,
+    /// so a `Handler` can be built and driven directly in a unit test.
+    async fn idle_connection() -> Connection<CdpEventMessage> {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        tokio::spawn(async move {
+            if let Ok((stream, _)) = listener.accept().await {
+                if let Ok(ws) = tokio_tungstenite::accept_async(stream).await {
+                    // Keep the socket open for the life of the test.
+                    let _ws = ws;
+                    std::future::pending::<()>().await;
+                }
+            }
+        });
+        Connection::connect(format!("ws://{addr}"))
+            .await
+            .expect("connect")
+    }
+
+    fn page_target_info(id: &str) -> TargetInfo {
+        TargetInfo::builder()
+            .target_id(id.to_string())
+            .r#type("page")
+            .title("")
+            .url("about:blank")
+            .attached(false)
+            .can_access_opener(false)
+            .build()
+            .expect("target info")
+    }
+
+    /// Issue a `Page.navigate` on `tid` and deliver its ack, leaving the
+    /// navigation parked in `navigations` waiting for a lifecycle event.
+    fn park_acked_navigation(
+        h: &mut Handler,
+        tid: &TargetId,
+    ) -> tokio::sync::oneshot::Receiver<Result<Response>> {
+        use chromiumoxide_cdp::cdp::browser_protocol::page::NavigateParams;
+
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let msg = CommandMessage::new(NavigateParams::new("https://example.com/"), tx)
+            .expect("navigate message");
+        let mut target = h.targets.remove(tid).expect("target");
+        h.on_target_message(&mut target, msg, Instant::now());
+        h.targets.insert(tid.clone(), target);
+
+        let id = *h
+            .navigations
+            .iter()
+            .find(|(_, NavigationRequest::Navigate(t, _))| t == tid)
+            .map(|(id, _)| id)
+            .expect("navigation queued");
+        h.on_navigation_response(
+            id,
+            Response {
+                id: CallId::new(1),
+                result: Some(serde_json::json!({"frameId": "f", "loaderId": "l"})),
+                error: None,
+            },
+        );
+        rx
+    }
+
+    /// A navigation whose ack has arrived waits only on its target's frame
+    /// manager for the lifecycle event. Once the target is destroyed or
+    /// crashes that never comes, so the entry must be released with the
+    /// target instead of sitting in `navigations` for the handler's lifetime.
+    #[tokio::test]
+    async fn navigations_are_released_when_their_target_goes_away() {
+        let (_tx, from_browser) = tokio::sync::mpsc::channel(1);
+        let mut h = Handler::new(
+            idle_connection().await,
+            from_browser,
+            HandlerConfig::default(),
+        );
+
+        let destroyed: TargetId = "destroyed".to_string().into();
+        let crashed: TargetId = "crashed".to_string().into();
+        let live: TargetId = "live".to_string().into();
+        for tid in [&destroyed, &crashed, &live] {
+            h.on_target_created(EventTargetCreated {
+                target_info: page_target_info(tid.as_ref()),
+            });
+        }
+
+        let mut destroyed_rx = park_acked_navigation(&mut h, &destroyed);
+        let mut crashed_rx = park_acked_navigation(&mut h, &crashed);
+        let mut live_rx = park_acked_navigation(&mut h, &live);
+        assert_eq!(h.navigations.len(), 3);
+
+        h.on_target_destroyed(EventTargetDestroyed {
+            target_id: destroyed.clone(),
+        });
+        h.on_target_crashed(EventTargetCrashed {
+            target_id: crashed.clone(),
+            status: "crashed".to_string(),
+            error_code: 9,
+        });
+        // The periodic eviction pass is the only other cleanup; it must not
+        // be what releases these entries either way.
+        h.evict_timed_out_commands(Instant::now() + 10 * h.config.request_timeout);
+
+        assert_eq!(
+            h.navigations.len(),
+            1,
+            "only the live target's navigation may remain"
+        );
+        assert!(matches!(destroyed_rx.try_recv(), Ok(Err(_))));
+        assert!(matches!(crashed_rx.try_recv(), Ok(Err(_))));
+        assert!(live_rx.try_recv().is_err(), "live navigation still pending");
     }
 
     /// Regression guard: `page_channel_capacity` must default to 2048
