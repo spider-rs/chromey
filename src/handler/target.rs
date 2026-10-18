@@ -1384,6 +1384,15 @@ impl Target {
         self.initiator = Some(tx);
     }
 
+    #[cfg(feature = "parallel-handler")]
+    pub(crate) fn cancel_initiator(&mut self) {
+        if let Some(tx) = self.initiator.take() {
+            let _ = tx.send(Err(CdpError::msg(
+                "session stopped before page initialization",
+            )));
+        }
+    }
+
     pub(crate) fn page_init_commands(timeout: Duration) -> CommandChain {
         CommandChain::new(INIT_COMMANDS_PARAMS.clone(), timeout)
     }

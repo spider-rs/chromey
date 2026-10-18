@@ -38,6 +38,7 @@ impl<T: Command> CommandFuture<T> {
         session: Option<SessionId>,
         request_timeout: std::time::Duration,
     ) -> Result<Self> {
+        crate::handler::validate_request_timeout(request_timeout)?;
         let (tx, rx_command) = oneshot::channel::<Result<Response>>();
         let method = cmd.identifier();
 
@@ -45,7 +46,10 @@ impl<T: Command> CommandFuture<T> {
             cmd, tx, session,
         )?));
 
-        let delay = tokio::time::sleep(request_timeout);
+        let deadline = tokio::time::Instant::now()
+            .checked_add(request_timeout)
+            .ok_or(crate::error::CdpError::Timeout)?;
+        let delay = tokio::time::sleep_until(deadline);
 
         Ok(Self {
             target_sender,
@@ -56,6 +60,27 @@ impl<T: Command> CommandFuture<T> {
             method,
             _marker: PhantomData,
         })
+    }
+}
+
+#[cfg(test)]
+mod timeout_tests {
+    use super::*;
+    use chromiumoxide_cdp::cdp::js_protocol::runtime::EnableParams;
+    use std::time::Duration;
+
+    #[test]
+    fn invalid_command_timeout_is_rejected_before_constructing_a_timer() {
+        for timeout in [Duration::ZERO, Duration::MAX] {
+            let (tx, _rx) = mpsc::channel(1);
+            let result = CommandFuture::new(
+                EnableParams::default(),
+                PageSender::new(tx, None),
+                None,
+                timeout,
+            );
+            assert!(result.is_err());
+        }
     }
 }
 

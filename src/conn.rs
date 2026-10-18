@@ -3,8 +3,8 @@ use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::ready;
 
-use futures_util::stream::{FuturesOrdered, SplitSink};
-use futures_util::{SinkExt, Stream, StreamExt};
+use futures_util::stream::FuturesOrdered;
+use futures_util::{Sink, SinkExt, Stream, StreamExt};
 use std::future::Future;
 use std::task::{Context, Poll};
 use tokio::sync::mpsc;
@@ -612,22 +612,28 @@ impl<T: EventMessage + Unpin + Send + 'static> Connection<T> {
     /// interleaves cleanly with the Handler task on single-threaded
     /// runtimes.
     pub fn into_async(self) -> AsyncConnection<T> {
+        self.into_async_with_timeout(std::time::Duration::from_millis(
+            crate::handler::REQUEST_TIMEOUT,
+        ))
+    }
+
+    pub(crate) fn into_async_with_timeout(
+        self,
+        write_timeout: std::time::Duration,
+    ) -> AsyncConnection<T> {
         let (ws_sink, ws_stream) = self.ws.split();
         let (cmd_tx, cmd_rx) = mpsc::channel(WS_CMD_CHANNEL_CAPACITY);
         let (msg_tx, msg_rx) = mpsc::channel::<Result<Box<Message<T>>>>(WS_READ_CHANNEL_CAPACITY);
 
-        // Replay any commands queued via `submit_command` before the
-        // split — most notably the boot `Target.setDiscoverTargets`
-        // pushed by `Handler::new`. Without this, real Chrome never
-        // emits `Target.targetCreated` and `new_page` hangs forever.
-        // Capacity is `WS_CMD_CHANNEL_CAPACITY`, so the boot batch fits
-        // easily — `try_send` would only fail in a pathological case
-        // and we'd lose those commands either way.
-        for call in self.pending_commands {
-            let _ = cmd_tx.try_send(call);
-        }
-
-        let writer_handle = tokio::spawn(ws_write_loop(ws_sink, cmd_rx));
+        // Preserve every pre-split command, including discovery, in order.
+        // Replaying through try_send would silently lose a batch larger than
+        // the bounded channel.
+        let writer_handle = tokio::spawn(ws_write_loop(
+            ws_sink,
+            cmd_rx,
+            self.pending_commands,
+            write_timeout,
+        ));
         let reader_handle = tokio::spawn(ws_read_loop::<T, _>(ws_stream, msg_tx));
 
         let reader = WsReader {
@@ -864,26 +870,47 @@ where
 }
 
 /// Background task that batches and flushes outgoing CDP commands.
-async fn ws_write_loop(
-    mut sink: SplitSink<WebSocketStream<ConnectStream>, WsMessage>,
+async fn ws_write_loop<S>(
+    mut sink: S,
     mut rx: mpsc::Receiver<MethodCall>,
-) -> Result<()> {
-    while let Some(call) = rx.recv().await {
-        let msg = crate::serde_json::to_string(&call)?;
-        sink.feed(WsMessage::Text(msg.into()))
-            .await
-            .map_err(CdpError::Ws)?;
-
-        // Batch: drain all buffered commands without waiting.
-        while let Ok(call) = rx.try_recv() {
-            let msg = crate::serde_json::to_string(&call)?;
-            sink.feed(WsMessage::Text(msg.into()))
-                .await
-                .map_err(CdpError::Ws)?;
-        }
-
-        // Flush the entire batch in one write.
-        sink.flush().await.map_err(CdpError::Ws)?;
+    mut initial: VecDeque<MethodCall>,
+    write_timeout: std::time::Duration,
+) -> Result<()>
+where
+    S: Sink<WsMessage, Error = tokio_tungstenite::tungstenite::Error> + Unpin,
+{
+    crate::handler::validate_request_timeout(write_timeout)?;
+    // One deadline covers all feeds AND the flush. Limiting the batch avoids
+    // postponing flush indefinitely when producers continuously refill rx.
+    let write_timeout = write_timeout.min(std::time::Duration::from_secs(30));
+    loop {
+        let call = match initial.pop_front() {
+            Some(call) => call,
+            None => match rx.recv().await {
+                Some(call) => call,
+                None => break,
+            },
+        };
+        let deadline = tokio::time::Instant::now()
+            .checked_add(write_timeout)
+            .ok_or(CdpError::Timeout)?;
+        tokio::time::timeout_at(deadline, async {
+            let mut next = Some(call);
+            for index in 0..128 {
+                let Some(call) = next.take() else { break };
+                let msg = crate::serde_json::to_string(&call)?;
+                sink.feed(WsMessage::Text(msg.into()))
+                    .await
+                    .map_err(CdpError::Ws)?;
+                // Do not dequeue a command beyond this batch's last item.
+                if index != 127 {
+                    next = initial.pop_front().or_else(|| rx.try_recv().ok());
+                }
+            }
+            sink.flush().await.map_err(CdpError::Ws)
+        })
+        .await
+        .map_err(|_| CdpError::Timeout)??;
     }
 
     // Cmd channel closed → the Handler is shutting down. Send a graceful
@@ -893,7 +920,10 @@ async fn ws_write_loop(
     // down promptly instead of waiting for an idle timeout. Errors are
     // expected during shutdown (e.g. `AlreadyClosed` if Chrome closed
     // first) and are intentionally ignored.
-    let _ = sink.close().await;
+    let deadline = tokio::time::Instant::now()
+        .checked_add(write_timeout)
+        .ok_or(CdpError::Timeout)?;
+    let _ = tokio::time::timeout_at(deadline, sink.close()).await;
     Ok(())
 }
 
@@ -913,6 +943,14 @@ pub struct WsReader<T: EventMessage> {
 }
 
 impl<T: EventMessage + Unpin> WsReader<T> {
+    #[cfg(test)]
+    pub(crate) fn from_receiver(rx: mpsc::Receiver<Result<Box<Message<T>>>>) -> Self {
+        Self {
+            rx,
+            _marker: PhantomData,
+        }
+    }
+
     /// Read the next CDP message from the WebSocket.
     ///
     /// Returns `None` when the background reader task has exited
@@ -921,6 +959,146 @@ impl<T: EventMessage + Unpin> WsReader<T> {
     /// the background `ws_read_loop` task.
     pub async fn next_message(&mut self) -> Option<Result<Box<Message<T>>>> {
         self.rx.recv().await
+    }
+}
+
+#[cfg(test)]
+mod ws_write_backpressure_tests {
+    use super::*;
+    use std::time::Duration;
+    use tokio_tungstenite::tungstenite::Error;
+
+    #[derive(Clone, Copy, PartialEq)]
+    enum Block {
+        Feed,
+        Flush,
+        Close,
+        Never,
+    }
+
+    struct FakeSink {
+        block: Block,
+        fed: Vec<usize>,
+        flushed: mpsc::UnboundedSender<Vec<usize>>,
+    }
+
+    impl Sink<WsMessage> for FakeSink {
+        type Error = Error;
+        fn poll_ready(
+            self: Pin<&mut Self>,
+            _: &mut Context<'_>,
+        ) -> Poll<std::result::Result<(), Error>> {
+            if self.block == Block::Feed {
+                Poll::Pending
+            } else {
+                Poll::Ready(Ok(()))
+            }
+        }
+        fn start_send(mut self: Pin<&mut Self>, msg: WsMessage) -> std::result::Result<(), Error> {
+            let json: serde_json::Value = serde_json::from_str(msg.to_text().unwrap()).unwrap();
+            self.fed.push(json["id"].as_u64().unwrap() as usize);
+            Ok(())
+        }
+        fn poll_flush(
+            mut self: Pin<&mut Self>,
+            _: &mut Context<'_>,
+        ) -> Poll<std::result::Result<(), Error>> {
+            if self.block == Block::Flush {
+                return Poll::Pending;
+            }
+            let batch = std::mem::take(&mut self.fed);
+            self.flushed.send(batch).unwrap();
+            Poll::Ready(Ok(()))
+        }
+        fn poll_close(
+            self: Pin<&mut Self>,
+            _: &mut Context<'_>,
+        ) -> Poll<std::result::Result<(), Error>> {
+            if self.block == Block::Close {
+                Poll::Pending
+            } else {
+                Poll::Ready(Ok(()))
+            }
+        }
+    }
+
+    fn call(id: usize) -> MethodCall {
+        MethodCall {
+            id: CallId::new(id),
+            method: "Test.command".into(),
+            session_id: None,
+            params: serde_json::json!({}),
+        }
+    }
+
+    async fn blocked_writer(block: Block) {
+        let (tx, rx) = mpsc::channel(1);
+        tx.try_send(call(1)).unwrap();
+        let (flushed, _batches) = mpsc::unbounded_channel();
+        let sink = FakeSink {
+            block,
+            fed: Vec::new(),
+            flushed,
+        };
+        let result = ws_write_loop(sink, rx, VecDeque::new(), Duration::from_millis(10)).await;
+        assert!(matches!(result, Err(CdpError::Timeout)));
+        assert!(tx.is_closed(), "writer must close its queue on timeout");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn blocked_feed_has_a_finite_deadline() {
+        blocked_writer(Block::Feed).await;
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn blocked_flush_has_a_finite_deadline() {
+        blocked_writer(Block::Flush).await;
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn blocked_close_has_a_finite_deadline() {
+        let (tx, rx) = mpsc::channel(1);
+        drop(tx);
+        let (flushed, _batches) = mpsc::unbounded_channel();
+        let sink = FakeSink {
+            block: Block::Close,
+            fed: Vec::new(),
+            flushed,
+        };
+        let start = tokio::time::Instant::now();
+        ws_write_loop(sink, rx, VecDeque::new(), Duration::from_millis(10))
+            .await
+            .unwrap();
+        assert!(start.elapsed() >= Duration::from_millis(10));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn finite_batches_preserve_every_accepted_command_in_order() {
+        let (tx, rx) = mpsc::channel(1);
+        tx.try_send(call(301)).unwrap();
+        drop(tx);
+        let (flushed, mut batches) = mpsc::unbounded_channel();
+        let sink = FakeSink {
+            block: Block::Never,
+            fed: Vec::new(),
+            flushed,
+        };
+        ws_write_loop(
+            sink,
+            rx,
+            (1..=300).map(call).collect(),
+            Duration::from_secs(1),
+        )
+        .await
+        .unwrap();
+        let mut ids = Vec::new();
+        let mut sizes = Vec::new();
+        while let Some(batch) = batches.recv().await {
+            sizes.push(batch.len());
+            ids.extend(batch);
+        }
+        assert_eq!(sizes, [128, 128, 45]);
+        assert_eq!(ids, (1..=301).collect::<Vec<_>>());
     }
 }
 

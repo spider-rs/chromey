@@ -121,6 +121,7 @@ impl Browser {
         url: impl Into<String>,
         config: HandlerConfig,
     ) -> Result<(Self, Handler)> {
+        crate::handler::validate_request_timeout(config.request_timeout)?;
         // Put chromey's client in place before any remote cache call can
         // make spider_remote_cache build its own default.
         #[cfg(feature = "_cache")]
@@ -227,7 +228,7 @@ impl Browser {
             ..Default::default()
         };
 
-        let fut = Handler::new(conn, rx, config);
+        let fut = Handler::new(conn, rx, config)?;
         let browser_context = fut.default_browser_context().clone();
 
         let browser = Self {
@@ -250,6 +251,7 @@ impl Browser {
     /// processes stderr for more than the configured `launch_timeout`
     /// (20 seconds by default).
     pub async fn launch(mut config: BrowserConfig) -> Result<(Self, Handler)> {
+        crate::handler::validate_request_timeout(config.request_timeout)?;
         // Eagerly initialize the background cleanup worker in this
         // runtime so that later `Drop` calls on CDP streams / temp
         // files (from `bg_cleanup::submit`) land on a live receiver.
@@ -346,7 +348,7 @@ impl Browser {
             connect_headers: config.connect_headers.clone(),
         };
 
-        let fut = Handler::new(conn, rx, handler_config);
+        let fut = Handler::new(conn, rx, handler_config)?;
         let browser_context = fut.default_browser_context().clone();
 
         let browser = Self {
@@ -1080,6 +1082,24 @@ impl BrowserConfig {
     }
 }
 
+#[cfg(test)]
+mod request_timeout_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn launch_paths_reject_invalid_request_timeout_before_touching_executable() {
+        for timeout in [Duration::ZERO, Duration::MAX] {
+            let mut config = BrowserConfig::with_executable("/must-not-be-launched");
+            config.request_timeout = timeout;
+            let error = config.launch().unwrap_err();
+            assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+            assert!(error.to_string().contains("request_timeout"));
+            let error = Browser::launch(config).await.unwrap_err();
+            assert!(error.to_string().contains("request_timeout"));
+        }
+    }
+}
+
 impl Default for BrowserConfigBuilder {
     fn default() -> Self {
         Self {
@@ -1446,6 +1466,8 @@ impl BrowserConfigBuilder {
 
     /// Build the browser.
     pub fn build(self) -> std::result::Result<BrowserConfig, String> {
+        crate::handler::validate_request_timeout(self.request_timeout)
+            .map_err(|err| err.to_string())?;
         let executable = if let Some(e) = self.executable {
             e
         } else {
@@ -1500,6 +1522,8 @@ impl BrowserConfigBuilder {
 
 impl BrowserConfig {
     pub fn launch(&self) -> io::Result<Child> {
+        crate::handler::validate_request_timeout(self.request_timeout)
+            .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))?;
         let mut cmd = async_process::Command::new(&self.executable);
 
         if self.disable_default_args {

@@ -47,6 +47,7 @@ pub mod frame;
 pub mod http;
 pub mod httpfuture;
 mod job;
+pub(crate) use job::validate_request_timeout;
 pub mod network;
 pub mod network_utils;
 pub mod page;
@@ -140,7 +141,8 @@ impl Handler {
         mut conn: Connection<CdpEventMessage>,
         rx: Receiver<HandlerMessage>,
         config: HandlerConfig,
-    ) -> Self {
+    ) -> Result<Self> {
+        let evict_command_timeout = PeriodicJob::new(config.request_timeout)?;
         let discover = DISCOVER_ID.clone();
         let _ = conn.submit_command(discover.0, None, discover.1);
         let conn = Some(conn);
@@ -151,7 +153,7 @@ impl Handler {
             .map(|id| BrowserContext::from(id.clone()))
             .collect();
 
-        Self {
+        Ok(Self {
             pending_commands: Default::default(),
             from_browser: rx,
             default_browser_context: Default::default(),
@@ -161,7 +163,7 @@ impl Handler {
             navigations: Default::default(),
             sessions: Default::default(),
             conn,
-            evict_command_timeout: PeriodicJob::new(config.request_timeout),
+            evict_command_timeout,
             next_navigation_id: 0,
             config,
             event_listeners: Default::default(),
@@ -170,7 +172,7 @@ impl Handler {
             budget_exhausted: false,
             attached_targets: Default::default(),
             page_wake: None,
-        }
+        })
     }
 
     /// Borrow the WebSocket connection, returning an error if it has been
@@ -763,8 +765,11 @@ impl Handler {
     /// ```
     pub async fn run(mut self) -> Result<()> {
         use chromiumoxide_types::Message;
-        use tokio::time::MissedTickBehavior;
         use tokio_tungstenite::tungstenite::{self, error::ProtocolError};
+
+        // Validate before spawning socket tasks so a delayed run cannot leak
+        // them if its timeout is no longer representable.
+        let mut evict_timer = job::eviction_interval(self.config.request_timeout)?;
 
         // --- set up page notification ---
         let page_wake = Arc::new(Notify::new());
@@ -775,7 +780,7 @@ impl Handler {
             .conn
             .take()
             .ok_or_else(|| CdpError::msg("Handler::run() called with no connection"))?;
-        let async_conn = conn.into_async();
+        let async_conn = conn.into_async_with_timeout(self.config.request_timeout);
         let mut ws_reader = async_conn.reader;
         let ws_tx = async_conn.cmd_tx;
         let mut writer_handle = async_conn.writer_handle;
@@ -788,13 +793,6 @@ impl Handler {
             next_call_id = next_call_id.wrapping_add(1);
             id
         };
-
-        // --- eviction timer ---
-        let mut evict_timer = tokio::time::interval_at(
-            tokio::time::Instant::now() + self.config.request_timeout,
-            self.config.request_timeout,
-        );
-        evict_timer.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
         // Helper closure: submit a MethodCall through the WS writer.
         macro_rules! ws_submit {
@@ -1204,7 +1202,19 @@ impl Handler {
             .conn
             .take()
             .ok_or_else(|| CdpError::msg("Handler::run_parallel() called with no connection"))?;
-        let async_conn = conn.into_async();
+        let mut async_conn = conn.into_async_with_timeout(self.config.request_timeout);
+        // Also stop the socket tasks if the caller cancels run_parallel.
+        struct StopSocketTasks(tokio::task::AbortHandle, tokio::task::AbortHandle);
+        impl Drop for StopSocketTasks {
+            fn drop(&mut self) {
+                self.0.abort();
+                self.1.abort();
+            }
+        }
+        let _socket_tasks = StopSocketTasks(
+            async_conn.writer_handle.abort_handle(),
+            async_conn.reader_handle.abort_handle(),
+        );
 
         // The boot command has already been pushed by `Handler::new`; it
         // sits at call_id `next_id - 1`.
@@ -1222,9 +1232,15 @@ impl Handler {
             boot_method,
             next_id,
         );
-        let result = router.run().await;
+        let result = tokio::select! {
+            result = router.run() => result,
+            result = &mut async_conn.writer_handle => {
+                result.map_err(|err| CdpError::msg(format!("WS writer task failed: {err}")))
+                    .and_then(|result| result)
+            }
+        };
 
-        // Make sure the writer drains and the reader task exits cleanly.
+        // Router exit cancels pending requests; stop both socket halves.
         async_conn.writer_handle.abort();
         async_conn.reader_handle.abort();
 
