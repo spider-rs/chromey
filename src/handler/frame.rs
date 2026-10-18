@@ -444,7 +444,17 @@ impl FrameManager {
             }
         } else if let Some((req, watcher)) = self.pending_navigations.pop_front() {
             // queue in the next navigation that is must be fulfilled until `deadline`
-            let deadline = Instant::now() + req.timeout;
+            let Some(deadline) = now
+                .checked_add(req.timeout)
+                .filter(|_| !req.timeout.is_zero())
+            else {
+                return Some(FrameEvent::NavigationResult(Err(
+                    NavigationError::Timeout {
+                        err: DeadlineExceeded::new(now, now),
+                        id: req.id,
+                    },
+                )));
+            };
             self.navigation = Some((watcher, deadline));
             return Some(FrameEvent::NavigationRequest(req.id, req.req));
         }
@@ -950,6 +960,33 @@ impl AsRef<str> for LifecycleEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn invalid_navigation_deadline_returns_timeout_without_dispatching() {
+        for timeout in [Duration::ZERO, Duration::MAX] {
+            let mut fm = FrameManager::new(Duration::from_secs(30));
+            let frame_id = FrameId::new("main");
+            fm.frames
+                .insert(frame_id.clone(), Frame::new(frame_id.clone()));
+            fm.main_frame = Some(frame_id);
+            let request = Request::new(
+                "Page.navigate".into(),
+                serde_json::json!({"url": "about:blank"}),
+            );
+            fm.goto(FrameRequestedNavigation::new(
+                NavigationId(1),
+                request,
+                timeout,
+            ));
+            assert!(matches!(
+                fm.poll(Instant::now()),
+                Some(FrameEvent::NavigationResult(Err(
+                    NavigationError::Timeout { .. }
+                )))
+            ));
+            assert!(fm.navigation.is_none());
+        }
+    }
 
     #[test]
     fn frame_lifecycle_events_cleared_on_loading_started() {

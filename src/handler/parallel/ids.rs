@@ -8,11 +8,12 @@
 //!
 //! Replacement: a process-shared `AtomicU64` mints monotonic small ids
 //! (well within `i32`'s range for a single browser session), and a
-//! lock-free `DashMap<CallId, slot>` records routing on dispatch. The map
+//! sharded `DashMap<CallId, slot>` records routing on dispatch. The map
 //! is read once per response and removed on the same path; under typical
 //! parallel-page workloads the live entry count equals the in-flight
-//! command count, which is bounded by the WS command channel capacity
-//! (2048).
+//! command count (including commands already drained by the WS writer).
+//! No map guard escapes this module. The retain predicate is a pure slot
+//! comparison; it must never call back into routing or await while locked.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;

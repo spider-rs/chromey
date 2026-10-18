@@ -119,7 +119,13 @@ impl<T> TargetMessageFuture<T> {
     /// the command phase completes, not from future creation time.
     pub fn reset_deadline(self: Pin<&mut Self>) {
         let this = self.project();
-        let deadline = tokio::time::Instant::now() + *this.request_timeout;
+        let now = tokio::time::Instant::now();
+        // Sleep saturates overflowing durations to Tokio's far-future
+        // deadline. Reuse that behavior rather than turning overflow into
+        // immediate expiry (or overflowing with Instant's Add impl).
+        let deadline = now
+            .checked_add(*this.request_timeout)
+            .unwrap_or_else(|| tokio::time::sleep(*this.request_timeout).deadline());
         this.delay.reset(deadline);
     }
 
@@ -184,6 +190,36 @@ impl<T> Future for TargetMessageFuture<T> {
             Poll::Ready(Err(crate::error::CdpError::Timeout))
         } else {
             this.rx_request.as_mut().poll(cx).map_err(Into::into)
+        }
+    }
+}
+
+#[cfg(test)]
+mod timeout_tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[tokio::test(start_paused = true)]
+    async fn extreme_deadlines_saturate_and_zero_expires_before_and_after_reset() {
+        for reset in [false, true] {
+            for value in [Duration::ZERO, Duration::MAX] {
+                let (tx, _rx) = mpsc::channel(1);
+                let future = TargetMessageFuture::<ArcHttpRequest>::wait_for_navigation(
+                    PageSender::new(tx, None),
+                    value,
+                );
+                tokio::pin!(future);
+                if reset {
+                    future.as_mut().reset_deadline();
+                }
+                if value.is_zero() {
+                    assert!(matches!(future.await, Err(crate::error::CdpError::Timeout)));
+                } else {
+                    assert!(futures_util::poll!(future.as_mut()).is_pending());
+                    tokio::time::advance(Duration::from_secs(86400)).await;
+                    assert!(futures_util::poll!(future.as_mut()).is_pending());
+                }
+            }
         }
     }
 }

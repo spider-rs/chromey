@@ -24,9 +24,6 @@ pub(crate) enum RouterToSession {
     /// oneshot over so the SessionTask can fulfill it once init reaches
     /// `Initialized` and the main frame is loaded.
     SetInitiator(OneshotSender<Result<Page>>),
-
-    /// Graceful shutdown — drain pending and exit.
-    Shutdown,
 }
 
 /// Lifecycle signal sent from a SessionTask back to the Router.
@@ -35,10 +32,6 @@ pub(crate) enum SessionToRouter {
     /// The session has resolved its session_id (after `Target.attachToTarget`
     /// succeeded). Router uses this to populate `session_id → slot`.
     SessionAttached { slot: u16, session_id: String },
-
-    /// Session task has exited (target closed, error, or shutdown). Router
-    /// frees the slot and removes routing entries.
-    Detached { slot: u16 },
 }
 
 /// External command originating from `Browser::execute` (no session_id) that

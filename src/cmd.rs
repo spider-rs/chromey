@@ -148,7 +148,13 @@ impl CommandChain {
                 Poll::Pending
             }
         } else if let Some((method, val)) = self.cmds.pop_front() {
-            self.waiting = Some((method.clone(), now + self.timeout));
+            let Some(deadline) = now
+                .checked_add(self.timeout)
+                .filter(|_| !self.timeout.is_zero())
+            else {
+                return Poll::Ready(Some(Err(DeadlineExceeded::new(now, now))));
+            };
+            self.waiting = Some((method.clone(), deadline));
             Poll::Ready(Some(Ok((method, val))))
         } else {
             Poll::Ready(None)
@@ -162,6 +168,24 @@ impl Default for CommandChain {
             cmds: Default::default(),
             waiting: None,
             timeout: Duration::from_millis(REQUEST_TIMEOUT),
+        }
+    }
+}
+
+#[cfg(test)]
+mod timeout_tests {
+    use super::*;
+
+    #[test]
+    fn invalid_chain_deadline_fails_without_dispatching() {
+        for timeout in [Duration::ZERO, Duration::MAX] {
+            let mut chain =
+                CommandChain::new([("Test.command".into(), serde_json::json!({}))], timeout);
+            assert!(matches!(
+                chain.poll(Instant::now()),
+                Poll::Ready(Some(Err(_)))
+            ));
+            assert!(chain.waiting.is_none());
         }
     }
 }
