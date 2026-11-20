@@ -5,7 +5,7 @@
 //! Run with:
 //!   cargo test --test browser_integration
 
-use chromiumoxide::browser::{Browser, BrowserConfig, HeadlessMode};
+use chromey::browser::{Browser, BrowserConfig, HeadlessMode};
 use futures_util::StreamExt;
 use std::path::PathBuf;
 use tokio::time::{timeout, Duration};
@@ -67,7 +67,7 @@ async fn launch_with_handler(config: BrowserConfig) -> Browser {
     // problem and propagate via the final `expect`. Each successful
     // launch spawns the handler drain loop exactly once.
     const MAX_LAUNCH_ATTEMPTS: u32 = 3;
-    let mut last_err: Option<chromiumoxide::error::CdpError> = None;
+    let mut last_err: Option<chromey::error::CdpError> = None;
     for attempt in 1..=MAX_LAUNCH_ATTEMPTS {
         match Browser::launch(config.clone()).await {
             Ok((browser, mut handler)) => {
@@ -114,7 +114,7 @@ async fn open_about_blank_with_timeout(
     Ok(())
 }
 
-async fn retried_open_start_page(browser: &mut Browser) -> Result<chromiumoxide::Page, String> {
+async fn retried_open_start_page(browser: &mut Browser) -> Result<chromey::Page, String> {
     let create_timeout = Duration::from_secs(30);
 
     for attempt in 1..=2 {

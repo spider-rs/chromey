@@ -1,8 +1,8 @@
 use futures_util::StreamExt;
 
-use chromiumoxide::browser::{Browser, BrowserConfig};
-use chromiumoxide::page::ScreenshotParams;
-use chromiumoxide_cdp::cdp::browser_protocol::page::CaptureScreenshotFormat;
+use chromey::browser::{Browser, BrowserConfig};
+use chromey::page::ScreenshotParams;
+use chromey_cdp::cdp::browser_protocol::page::CaptureScreenshotFormat;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

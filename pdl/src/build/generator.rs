@@ -42,7 +42,7 @@ use crate::pdl::{DataType, Domain, Param, Protocol, Type, Variant};
 /// ```rust,no_run
 /// # use std::io::Result;
 /// fn main() -> Result<()> {
-///   chromiumoxide_pdl::build::compile_pdls(&["src/js.pdl", "src/browser.pdl"])?;
+///   chromey_pdl::build::compile_pdls(&["src/js.pdl", "src/browser.pdl"])?;
 ///   Ok(())
 /// }
 /// ```
@@ -135,7 +135,7 @@ impl Generator {
     /// Compile `.pdls` files into Rust files during a Cargo build with
     /// additional code generator configuration options.
     ///
-    /// This method is like the `chromiumoxide_pdl::build::compile_pdls`
+    /// This method is like the `chromey_pdl::build::compile_pdls`
     /// function, with the added ability to specify non-default code
     /// generation options. See that function for more information about the
     /// arguments and generated outputs.
@@ -145,7 +145,7 @@ impl Generator {
     /// ```rust,no_run
     /// # use std::io::Result;
     /// fn main() -> Result<()> {
-    ///   let mut pdl_build = chromiumoxide_pdl::build::Generator::default();
+    ///   let mut pdl_build = chromey_pdl::build::Generator::default();
     ///   pdl_build.out_dir("some/path");
     ///   pdl_build.compile_pdls(&["src/frontend.pdl", "src/backend.pdl"])?;
     ///   Ok(())
@@ -240,11 +240,11 @@ impl Generator {
             /// chrome protocol definitions.
             ///
             /// Every `CustomEvent` also requires an implementation of
-            /// `chromiumoxide_types::MethodType` and it must be `DeserializeOwned`
+            /// `chromey_types::MethodType` and it must be `DeserializeOwned`
             /// (`#[derive(serde::Deserialize)]`). This is necessary to identify match this
             /// type against the provided `method` identifier of a `CdpEventMessage`
             /// and to properly deserialize it from a `serde_json::Value`
-            pub trait CustomEvent: ::std::any::Any + serde::de::DeserializeOwned + chromiumoxide_types::MethodType + Send + Sync {
+            pub trait CustomEvent: ::std::any::Any + serde::de::DeserializeOwned + chromey_types::MethodType + Send + Sync {
 
                 /// Used to convert the json event into in instance of this type
                 fn from_json(event: serde_json::Value) -> serde_json::Result<Self> where Self: Sized + 'static {
@@ -318,7 +318,7 @@ impl Generator {
                         }
                 }
 
-                pub trait SealedEvent: ArcAny + chromiumoxide_types::MethodType {
+                pub trait SealedEvent: ArcAny + chromey_types::MethodType {
                     /// generate `&::std::any::Any`'s vtable from `&Trait`'s.
                     fn as_any(&self) -> &dyn ::std::any::Any;
                 }
@@ -467,16 +467,16 @@ impl Generator {
             });
             if !dt.is_type() {
                 stream.extend(quote! {
-                    impl chromiumoxide_types::Method for #name {
+                    impl chromey_types::Method for #name {
 
-                        fn identifier(&self) -> chromiumoxide_types::MethodId {
+                        fn identifier(&self) -> chromey_types::MethodId {
                             Self::IDENTIFIER.into()
                         }
                     }
 
-                    impl chromiumoxide_types::MethodType for #name {
+                    impl chromey_types::MethodType for #name {
 
-                        fn method_id() -> chromiumoxide_types::MethodId where Self: Sized {
+                        fn method_id() -> chromey_types::MethodId where Self: Sized {
                             Self::IDENTIFIER.into()
                         }
                     }
@@ -503,7 +503,7 @@ impl Generator {
                 // impl `Command` trait
                 let response = format_ident!("{}Returns", dt.name().to_upper_camel_case());
                 stream.extend(quote! {
-                    impl chromiumoxide_types::Command for #name {
+                    impl chromey_types::Command for #name {
                         type Response = #response;
                     }
                 });
@@ -841,8 +841,8 @@ impl Generator {
                 Either::Left(size_of::<serde_json::Value>()),
             ),
             Type::Binary => (
-                FieldType::new(quote! {chromiumoxide_types::Binary}),
-                Either::Left(size_of::<chromiumoxide_types::Binary>()),
+                FieldType::new(quote! {chromey_types::Binary}),
+                Either::Left(size_of::<chromey_types::Binary>()),
             ),
             Type::Enum(_) => {
                 let ty = format_ident!("{}", subenum_name(parent, param_name));

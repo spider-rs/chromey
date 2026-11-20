@@ -17,9 +17,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use chromiumoxide::browser::{Browser, BrowserConfig, HeadlessMode};
-use chromiumoxide::Page;
-use chromiumoxide_cdp::cdp::js_protocol::runtime::EvaluateParams;
+use chromey::browser::{Browser, BrowserConfig, HeadlessMode};
+use chromey::Page;
+use chromey_cdp::cdp::js_protocol::runtime::EvaluateParams;
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use futures_util::StreamExt;
 

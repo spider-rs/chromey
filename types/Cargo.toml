@@ -1,17 +1,17 @@
 [package]
-name = "spider_chromiumoxide_types"
-version = "0.7.6"
+name = "chromey_types"
+version = "3.0.0"
 authors = ["Matthias Seitz <matthias.seitz@outlook.de>", "j-mendez <jeff@spider.cloud>"]
 edition = "2021"
-description = "Contains the essential types necessary for using chromiumoxide"
+description = "Core command, event and message types for chromey, the Chrome DevTools Protocol library"
 license = "MIT OR Apache-2.0"
-homepage = "https://github.com/mattsse/chromiumoxide"
-repository = "https://github.com/mattsse/chromiumoxide"
+homepage = "https://github.com/spider-rs/chromey"
+repository = "https://github.com/spider-rs/chromey"
 readme = "../README.md"
 include = ["src/**/*", "LICENSE-*"]
 
 [lib]
-name = "chromiumoxide_types"
+name = "chromey_types"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

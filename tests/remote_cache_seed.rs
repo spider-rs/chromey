@@ -11,8 +11,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use chromiumoxide::cache::manager::{is_site_key, listener_site_key, site_key_for_target_url};
-use chromiumoxide::cache::remote::{
+use chromey::cache::manager::{is_site_key, listener_site_key, site_key_for_target_url};
+use chromey::cache::remote::{
     get_cache_site, remote_seed_timeout, set_remote_seed_timeout, set_skip_remote_seed,
     skip_remote_seed, DEFAULT_REMOTE_SEED_TIMEOUT_MS,
 };

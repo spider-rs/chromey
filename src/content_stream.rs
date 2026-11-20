@@ -19,7 +19,7 @@
 
 use crate::error::{CdpError, Result};
 use crate::page::Page;
-use chromiumoxide_cdp::cdp::js_protocol::runtime::{
+use chromey_cdp::cdp::js_protocol::runtime::{
     CallArgument, CallFunctionOnParams, EvaluateParams, RemoteObjectId,
 };
 use futures_util::stream::{try_unfold, Stream};

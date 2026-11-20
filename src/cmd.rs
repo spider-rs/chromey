@@ -6,9 +6,9 @@ use serde::Serialize;
 use std::task::Poll;
 use tokio::sync::oneshot::Sender as OneshotSender;
 
-use chromiumoxide_cdp::cdp::browser_protocol::page::NavigateParams;
-use chromiumoxide_cdp::cdp::browser_protocol::target::SessionId;
-use chromiumoxide_types::{Command, CommandResponse, Method, MethodId, Request, Response};
+use chromey_cdp::cdp::browser_protocol::page::NavigateParams;
+use chromey_cdp::cdp::browser_protocol::target::SessionId;
+use chromey_types::{Command, CommandResponse, Method, MethodId, Request, Response};
 
 use crate::error::{CdpError, DeadlineExceeded, Result};
 use crate::handler::REQUEST_TIMEOUT;

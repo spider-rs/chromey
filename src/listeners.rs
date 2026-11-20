@@ -9,8 +9,8 @@ use std::task::{Context, Poll};
 use futures_util::Stream;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
-use chromiumoxide_cdp::cdp::{Event, EventKind, IntoEventKind};
-use chromiumoxide_types::MethodId;
+use chromey_cdp::cdp::{Event, EventKind, IntoEventKind};
+use chromey_types::MethodId;
 
 /// Unique identifier for a listener.
 pub type ListenerId = u64;
@@ -294,9 +294,9 @@ impl<T: IntoEventKind + Unpin> Stream for EventStream<T> {
 mod tests {
     use futures_util::StreamExt;
 
-    use chromiumoxide_cdp::cdp::browser_protocol::animation::EventAnimationCanceled;
-    use chromiumoxide_cdp::cdp::CustomEvent;
-    use chromiumoxide_types::{MethodId, MethodType};
+    use chromey_cdp::cdp::browser_protocol::animation::EventAnimationCanceled;
+    use chromey_cdp::cdp::CustomEvent;
+    use chromey_types::{MethodId, MethodType};
 
     use super::*;
 

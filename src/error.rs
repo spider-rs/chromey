@@ -4,13 +4,13 @@ use std::process::ExitStatus;
 use std::time::Instant;
 
 use base64::DecodeError;
-use chromiumoxide_cdp::cdp::browser_protocol::page::FrameId;
+use chromey_cdp::cdp::browser_protocol::page::FrameId;
 use thiserror::Error;
 use tokio_tungstenite::tungstenite;
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::handler::frame::NavigationError;
-use chromiumoxide_cdp::cdp::js_protocol::runtime::ExceptionDetails;
+use chromey_cdp::cdp::js_protocol::runtime::ExceptionDetails;
 
 pub type Result<T, E = CdpError> = std::result::Result<T, E>;
 
@@ -26,7 +26,7 @@ pub enum CdpError {
     #[cfg(feature = "simd")]
     SerdeSonic(#[from] sonic_rs::Error),
     #[error("{0}")]
-    Chrome(#[from] chromiumoxide_types::Error),
+    Chrome(#[from] chromey_types::Error),
     #[error("Received no response from the chromium instance.")]
     NoResponse,
     #[error("Received unexpected ws message: {0:?}")]
@@ -48,7 +48,7 @@ pub enum CdpError {
     #[error("FrameId {0:?} not found.")]
     FrameNotFound(FrameId),
     /// Error message related to a cdp response that is not a
-    /// `chromiumoxide_types::Error`
+    /// `chromey_types::Error`
     #[error("{0}")]
     ChromeMessage(String),
     #[error("{0}")]

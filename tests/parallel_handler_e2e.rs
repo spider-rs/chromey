@@ -9,8 +9,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use chromiumoxide::browser::{Browser, BrowserConfig, HeadlessMode};
-use chromiumoxide_cdp::cdp::js_protocol::runtime::EvaluateParams;
+use chromey::browser::{Browser, BrowserConfig, HeadlessMode};
+use chromey_cdp::cdp::js_protocol::runtime::EvaluateParams;
 use futures_util::StreamExt;
 use tokio::time::timeout;
 

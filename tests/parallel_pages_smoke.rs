@@ -8,9 +8,9 @@ mod cdp_mock;
 use std::sync::Arc;
 use std::time::Duration;
 
-use chromiumoxide::handler::HandlerConfig;
-use chromiumoxide::Browser;
-use chromiumoxide_cdp::cdp::js_protocol::runtime::EvaluateParams;
+use chromey::handler::HandlerConfig;
+use chromey::Browser;
+use chromey_cdp::cdp::js_protocol::runtime::EvaluateParams;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn mock_round_trip_and_n_pages_issue_commands() {

@@ -2,8 +2,8 @@ use std::path::Path;
 
 use futures_util::StreamExt;
 
-use chromiumoxide::browser::{Browser, BrowserConfig};
-use chromiumoxide::fetcher::{BrowserFetcher, BrowserFetcherOptions};
+use chromey::browser::{Browser, BrowserConfig};
+use chromey::fetcher::{BrowserFetcher, BrowserFetcherOptions};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

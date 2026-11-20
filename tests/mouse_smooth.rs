@@ -24,8 +24,8 @@
 //! saw. If the page ever renders for a human, the perceived motion
 //! tracks this captured trajectory.
 
-use chromiumoxide::browser::{Browser, BrowserConfig, HeadlessMode};
-use chromiumoxide::layout::Point;
+use chromey::browser::{Browser, BrowserConfig, HeadlessMode};
+use chromey::layout::Point;
 use futures_util::StreamExt;
 use serde_json::Value;
 use std::path::PathBuf;

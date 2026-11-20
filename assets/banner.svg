@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 480" width="1440" height="480" role="img" aria-labelledby="t d">
+  <title id="t">chromey</title>
+  <desc id="d">A mountain face with an avalanche running down it, beside the word chromey.</desc>
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0b1220"/>
+      <stop offset="1" stop-color="#15233b"/>
+    </linearGradient>
+    <linearGradient id="snow" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#b9d6ff"/>
+    </linearGradient>
+    <linearGradient id="rock" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#33486b"/>
+      <stop offset="1" stop-color="#1b2a45"/>
+    </linearGradient>
+    <linearGradient id="fade" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.95"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <clipPath id="frame">
+      <rect width="1440" height="480" rx="28"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#frame)">
+    <rect width="1440" height="480" fill="url(#sky)"/>
+
+    <!-- far ridge -->
+    <path d="M0 400 L150 290 L260 350 L420 210 L560 330 L700 270 L860 380 L1440 480 L0 480 Z" fill="#1a2a47"/>
+
+    <!-- main peak -->
+    <path d="M40 480 L360 96 L470 210 L540 160 L820 480 Z" fill="url(#rock)"/>
+    <!-- snow cap -->
+    <path d="M360 96 L470 210 L430 232 L392 200 L356 244 L318 206 L286 184 Z" fill="url(#snow)"/>
+
+    <!-- avalanche: a widening run of snow down the right face -->
+    <path d="M430 196 L470 210 L540 160 L600 228 L760 412 L880 480 L560 480 L500 372 L452 270 Z" fill="url(#snow)" opacity="0.92"/>
+    <path d="M452 270 L500 372 L560 480 L470 480 L436 360 Z" fill="#dbe9ff" opacity="0.55"/>
+
+    <!-- powder cloud at the front of the slide -->
+    <g fill="#ffffff">
+      <circle cx="700" cy="446" r="46" opacity="0.9"/>
+      <circle cx="770" cy="452" r="54" opacity="0.85"/>
+      <circle cx="846" cy="462" r="44" opacity="0.75"/>
+      <circle cx="640" cy="462" r="38" opacity="0.8"/>
+      <circle cx="910" cy="470" r="34" opacity="0.55"/>
+    </g>
+
+    <!-- speed lines -->
+    <g stroke="url(#fade)" stroke-width="6" stroke-linecap="round">
+      <path d="M560 250 L690 380"/>
+      <path d="M610 262 L724 376"/>
+      <path d="M520 300 L604 404"/>
+    </g>
+
+    <!-- wordmark -->
+    <text x="900" y="232" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="112" font-weight="800" letter-spacing="-3" fill="#ffffff">chromey</text>
+    <text x="904" y="290" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="30" font-weight="500" fill="#b9d6ff">Chrome automation for Rust</text>
+  </g>
+</svg>

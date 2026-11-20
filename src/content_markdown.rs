@@ -4,7 +4,7 @@
 //! Some remote engines expose a non-standard, capability-noun `Content`
 //! domain (alongside standard protocol domains) that can serialize the page
 //! as Markdown server-side. These bindings are hand-written
-//! [`Command`](chromiumoxide_types::Command) implementations issued as raw
+//! [`Command`](chromey_types::Command) implementations issued as raw
 //! method strings — no PDL definitions or code generation involved — mirroring
 //! how other vendor methods (e.g. `WebMCP.listTools`) are sent.
 //!
@@ -40,7 +40,7 @@ use serde::{Deserialize, Serialize};
 use crate::error::{CdpError, Result};
 use crate::listeners::EventStream;
 use crate::page::Page;
-use chromiumoxide_cdp::cdp::CustomEvent;
+use chromey_cdp::cdp::CustomEvent;
 
 /// Default per-event wait when consuming a Markdown stream, in milliseconds.
 /// Matches the crate's standard request timeout
@@ -95,14 +95,14 @@ impl GetMarkdownParams {
     }
 }
 
-impl chromiumoxide_types::Method for GetMarkdownParams {
-    fn identifier(&self) -> chromiumoxide_types::MethodId {
+impl chromey_types::Method for GetMarkdownParams {
+    fn identifier(&self) -> chromey_types::MethodId {
         Self::IDENTIFIER.into()
     }
 }
 
-impl chromiumoxide_types::MethodType for GetMarkdownParams {
-    fn method_id() -> chromiumoxide_types::MethodId
+impl chromey_types::MethodType for GetMarkdownParams {
+    fn method_id() -> chromey_types::MethodId
     where
         Self: Sized,
     {
@@ -143,7 +143,7 @@ impl GetMarkdownReturns {
     }
 }
 
-impl chromiumoxide_types::Command for GetMarkdownParams {
+impl chromey_types::Command for GetMarkdownParams {
     type Response = GetMarkdownReturns;
 }
 
@@ -168,8 +168,8 @@ impl EventMarkdownChunk {
     pub const IDENTIFIER: &'static str = "Content.markdownChunk";
 }
 
-impl chromiumoxide_types::MethodType for EventMarkdownChunk {
-    fn method_id() -> chromiumoxide_types::MethodId
+impl chromey_types::MethodType for EventMarkdownChunk {
+    fn method_id() -> chromey_types::MethodId
     where
         Self: Sized,
     {
@@ -193,8 +193,8 @@ impl EventMarkdownDone {
     pub const IDENTIFIER: &'static str = "Content.markdownDone";
 }
 
-impl chromiumoxide_types::MethodType for EventMarkdownDone {
-    fn method_id() -> chromiumoxide_types::MethodId
+impl chromey_types::MethodType for EventMarkdownDone {
+    fn method_id() -> chromey_types::MethodId
     where
         Self: Sized,
     {
@@ -465,7 +465,7 @@ mod tests {
 
     #[test]
     fn method_identifiers_match_the_domain() {
-        use chromiumoxide_types::{Method, MethodType};
+        use chromey_types::{Method, MethodType};
 
         assert_eq!(GetMarkdownParams::IDENTIFIER, "Content.getMarkdown");
         assert_eq!(EventMarkdownChunk::IDENTIFIER, "Content.markdownChunk");
@@ -584,11 +584,11 @@ mod tests {
         let mut chunks = EventStream::<EventMarkdownChunk>::new(chunk_rx);
         let mut done = EventStream::<EventMarkdownDone>::new(done_rx);
 
-        let chunk_ev: Arc<dyn chromiumoxide_cdp::cdp::Event> = Arc::new(EventMarkdownChunk {
+        let chunk_ev: Arc<dyn chromey_cdp::cdp::Event> = Arc::new(EventMarkdownChunk {
             chunk: "part".to_string(),
             extra: Default::default(),
         });
-        let done_ev: Arc<dyn chromiumoxide_cdp::cdp::Event> =
+        let done_ev: Arc<dyn chromey_cdp::cdp::Event> =
             Arc::new(EventMarkdownDone::default());
         chunk_tx.send(chunk_ev).expect("send chunk");
         done_tx.send(done_ev).expect("send done");

@@ -5,7 +5,7 @@ use directories::BaseDirs;
 use crate::error::{FetcherError, Result};
 use crate::{BrowserHost, BrowserKind, BrowserVersion, Platform, Revision};
 
-const CACHE_NAME: &str = "chromiumoxide";
+const CACHE_NAME: &str = "chromey";
 
 /// Options for the fetcher.
 pub struct BrowserFetcherOptions {
@@ -16,7 +16,7 @@ pub struct BrowserFetcherOptions {
 
     /// The path to download browsers to.
     ///
-    /// defaults to $HOME/.cache/chromiumoxide
+    /// defaults to $HOME/.cache/chromey
     pub(crate) path: PathBuf,
 
     /// The platform to download the browser for.

@@ -1,5 +1,5 @@
-use chromiumoxide::browser::BrowserConfigBuilder;
-use chromiumoxide::Browser;
+use chromey::browser::BrowserConfigBuilder;
+use chromey::Browser;
 use futures_util::StreamExt;
 use std::time::Duration;
 use tokio::task;

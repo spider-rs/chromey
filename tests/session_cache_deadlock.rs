@@ -10,10 +10,10 @@
 
 #![cfg(feature = "_cache")]
 
-use chromiumoxide::cache::remote::{
+use chromey::cache::remote::{
     get_session_cache_item, session_cache_insert, LOCAL_SESSION_CACHE,
 };
-use chromiumoxide::http::{HttpRequestLike, HttpResponseLike};
+use chromey::http::{HttpRequestLike, HttpResponseLike};
 use std::sync::Arc;
 use std::time::Duration;
 

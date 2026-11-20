@@ -1,5 +1,5 @@
 // RUST_LOG=debug cargo run --example connect
-use chromiumoxide::{
+use chromey::{
     browser::Browser,
     cdp::browser_protocol::{page::NavigateParams, target::CreateTargetParams},
     handler::HandlerConfig,

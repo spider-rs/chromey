@@ -26,7 +26,7 @@
 //! stomping each other's Chrome state. Skips with a note if no Chrome is
 //! on the PATH.
 
-use chromiumoxide::browser::{Browser, BrowserConfig, HeadlessMode};
+use chromey::browser::{Browser, BrowserConfig, HeadlessMode};
 use futures_util::StreamExt;
 use std::path::PathBuf;
 use tokio::time::{timeout, Duration};

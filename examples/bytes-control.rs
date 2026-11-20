@@ -1,8 +1,8 @@
 use futures_util::StreamExt;
 use futures_util::TryFutureExt;
 
-use chromiumoxide::browser::{Browser, BrowserConfig};
-use chromiumoxide::cdp::browser_protocol::page::NavigateParams;
+use chromey::browser::{Browser, BrowserConfig};
+use chromey::cdp::browser_protocol::page::NavigateParams;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

@@ -15,7 +15,7 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use std::collections::HashMap;
 
-use chromiumoxide_types::{CallId, MethodCall, MethodId};
+use chromey_types::{CallId, MethodCall, MethodId};
 use serde_json::json;
 
 // ---------------------------------------------------------------------------

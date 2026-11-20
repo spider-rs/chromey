@@ -25,8 +25,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use chromiumoxide::browser::{Browser, BrowserConfig, HeadlessMode};
-use chromiumoxide_cdp::cdp::js_protocol::runtime::EvaluateParams;
+use chromey::browser::{Browser, BrowserConfig, HeadlessMode};
+use chromey_cdp::cdp::js_protocol::runtime::EvaluateParams;
 use tokio::time::timeout;
 
 fn try_chrome_config(test_name: &str) -> Option<BrowserConfig> {

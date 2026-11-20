@@ -4,17 +4,17 @@ use std::time::Duration;
 
 use base64::prelude::BASE64_STANDARD;
 use base64::Engine;
-use chromiumoxide::cdp::browser_protocol::fetch::{
+use chromey::cdp::browser_protocol::fetch::{
     self, ContinueRequestParams, EventRequestPaused, FailRequestParams, FulfillRequestParams,
 };
-use chromiumoxide::cdp::browser_protocol::network::{
+use chromey::cdp::browser_protocol::network::{
     self, ErrorReason, EventRequestWillBeSent, ResourceType,
 };
-use chromiumoxide::Page;
+use chromey::Page;
 use futures_util::StreamExt;
 use tokio::time::sleep;
 
-use chromiumoxide::browser::{Browser, BrowserConfig};
+use chromey::browser::{Browser, BrowserConfig};
 
 const CONTENT: &str = "<html><head><meta http-equiv=\"refresh\" content=\"0;URL='http://www.example.com/'\" /></head><body><h1>TEST</h1></body></html>";
 const TARGET: &str = "http://google.com/";

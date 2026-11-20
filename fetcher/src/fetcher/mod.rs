@@ -18,7 +18,7 @@ mod options;
 /// Download the latest stable Chrome for Testing:
 /// ```no_run
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-/// use chromiumoxide_fetcher::{BrowserFetcher, BrowserFetcherOptions};
+/// use chromey_fetcher::{BrowserFetcher, BrowserFetcherOptions};
 ///
 /// let fetcher = BrowserFetcher::new(BrowserFetcherOptions::default()?);
 /// let installation = fetcher.fetch().await?;

@@ -8,10 +8,10 @@ mod cdp_mock;
 use std::sync::Arc;
 use std::time::Duration;
 
-use chromiumoxide::handler::HandlerConfig;
-use chromiumoxide::Browser;
-use chromiumoxide_cdp::cdp::browser_protocol::target::EventTargetCreated;
-use chromiumoxide_cdp::cdp::js_protocol::runtime::EvaluateParams;
+use chromey::handler::HandlerConfig;
+use chromey::Browser;
+use chromey_cdp::cdp::browser_protocol::target::EventTargetCreated;
+use chromey_cdp::cdp::js_protocol::runtime::EvaluateParams;
 use futures_util::StreamExt;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

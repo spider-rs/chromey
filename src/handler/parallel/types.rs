@@ -1,7 +1,7 @@
 //! Cross-task message types for the parallel handler.
 
-use chromiumoxide_cdp::cdp::CdpEventMessage;
-use chromiumoxide_types::{CallId, MethodId, Response};
+use chromey_cdp::cdp::CdpEventMessage;
+use chromey_types::{CallId, MethodId, Response};
 use tokio::sync::oneshot::Sender as OneshotSender;
 
 use crate::cmd::CommandMessage;

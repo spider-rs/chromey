@@ -14,13 +14,13 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use chromiumoxide_cdp::cdp::browser_protocol::browser::{CloseParams, CloseReturns};
-use chromiumoxide_cdp::cdp::browser_protocol::target::{
+use chromey_cdp::cdp::browser_protocol::browser::{CloseParams, CloseReturns};
+use chromey_cdp::cdp::browser_protocol::target::{
     CreateTargetParams, EventAttachedToTarget, TargetId, TargetInfo,
 };
-use chromiumoxide_cdp::cdp::CdpEvent;
-use chromiumoxide_cdp::cdp::CdpEventMessage;
-use chromiumoxide_types::{CallId, Message, Method, MethodCall, MethodId, Response};
+use chromey_cdp::cdp::CdpEvent;
+use chromey_cdp::cdp::CdpEventMessage;
+use chromey_types::{CallId, Message, Method, MethodCall, MethodId, Response};
 use futures_util::future::{AbortHandle, Abortable, Aborted, BoxFuture};
 use futures_util::stream::{FuturesUnordered, StreamExt};
 use tokio::sync::mpsc;
@@ -399,7 +399,7 @@ impl Router {
 
         // Fan out the browser-level event to subscribers (`Browser::event_listener`).
         let CdpEventMessage { params, method, .. } = event;
-        chromiumoxide_cdp::consume_event!(match params {
+        chromey_cdp::consume_event!(match params {
             |ev| self.event_listeners.start_send(ev),
             |json| { let _ = self.event_listeners.try_send_custom(&method, json); }
         });

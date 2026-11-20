@@ -1,13 +1,14 @@
 #![recursion_limit = "256"]
-//! A high-level API for programmatically interacting with the [Chrome DevTools Protocol](https://chromedevtools.github.io/devtools-protocol/).
+//! chromey drives Chrome over the [Chrome DevTools Protocol](https://chromedevtools.github.io/devtools-protocol/).
 //!
-//! This crate uses the [Chrome DevTools protocol] to drive/launch a Chromium or
-//! Chrome (potentially headless) browser.
+//! Launch a browser or connect to a running one, open pages, click, type,
+//! intercept requests, take screenshots and PDFs, and run any CDP command.
+//! One handler task routes every message, so many pages share one WebSocket.
 //!
 //! # Example
 //! ```no_run
 //! use futures_util::StreamExt;
-//! use chromiumoxide::{Browser, BrowserConfig};
+//! use chromey::{Browser, BrowserConfig};
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -41,19 +42,17 @@
 //! }
 //! ```
 //!
-//! The [`chromiumoxide_pdl`] crate contains a [PDL
-//! parser](chromiumoxide_pdl/src/pdl/parser.rs), which is a rust rewrite of a
-//! [python script in the chromium source tree]( https://chromium.googlesource.com/deps/inspector_protocol/+/refs/heads/master/pdl.py) and a
-//! [`Generator`](chromiumoxide_pdl/src/build/generator.rs) that turns the
-//! parsed PDL files into rust code. The
-//! [`chromiumoxide_cdp`](chromiumoxide_cdp) crate only purpose is to integrate
-//! the generator during is build process and include the generated output
-//! before compiling the crate itself. This separation is done merely because
-//! the generated output is ~60K lines of rust code (not including all the Proc
-//! macro extensions). So expect the compilation to take some time.
+//! # Crates
 //!
-//! The generator can be configured and used independently, see [`build.rs`] of
-//! [`chromiumoxide_cdp`].
+//! - `chromey_types` holds the command, event and message traits.
+//! - `chromey_pdl` parses the protocol PDL files and generates Rust from them.
+//!   The parser is a Rust rewrite of the
+//!   [python script in the chromium source tree](https://chromium.googlesource.com/deps/inspector_protocol/+/refs/heads/master/pdl.py).
+//! - `chromey_cdp` is the generated protocol, re-exported here as [`cdp`]. It is
+//!   about 60K lines, so the first compile takes a while.
+//! - `chromey_fetcher` downloads Chrome for Testing, behind the fetcher features.
+//!
+//! # Credits
 //!
 //! [chromedp](https://github.com/chromedp/chromedp)
 //! [rust-headless-chrome](https://github.com/Edu4rdSHL/rust-headless-chrome) which the launch
@@ -115,12 +114,12 @@ pub use crate::handler::page::active_page_count;
 pub use crate::handler::Handler;
 pub use crate::page::Page;
 /// re-export the generated cdp types
-pub use chromiumoxide_cdp::cdp;
-pub use chromiumoxide_types::{self as types, Binary, Command, Method, MethodType};
+pub use chromey_cdp::cdp;
+pub use chromey_types::{self as types, Binary, Command, Method, MethodType};
 
 #[cfg(feature = "fetcher")]
 pub mod fetcher {
-    pub use chromiumoxide_fetcher::*;
+    pub use chromey_fetcher::*;
 }
 
 /// HTTP request.

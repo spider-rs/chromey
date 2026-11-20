@@ -40,9 +40,9 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use chromiumoxide::handler::HandlerConfig;
-use chromiumoxide::Browser;
-use chromiumoxide_cdp::cdp::js_protocol::runtime::EvaluateParams;
+use chromey::handler::HandlerConfig;
+use chromey::Browser;
+use chromey_cdp::cdp::js_protocol::runtime::EvaluateParams;
 use tokio::time::timeout;
 
 /// Heartbeat handle: stops the loop on drop and reports the worst gap seen

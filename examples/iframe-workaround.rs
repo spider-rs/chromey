@@ -2,14 +2,14 @@
 // a problem with the iframe workaround is that it will always fail to load the page
 // and goto will cause a timeout.
 
-use chromiumoxide::handler::HandlerConfig;
+use chromey::handler::HandlerConfig;
 use futures_util::StreamExt;
 
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::init();
 
-    let (browser, mut handler) = chromiumoxide::Browser::connect_with_config(
+    let (browser, mut handler) = chromey::Browser::connect_with_config(
         "ws://127.0.0.1:9222/devtools/browser/191fdaef-494d-41b5-8b94-4abd04dff33c",
         HandlerConfig::default(),
     )

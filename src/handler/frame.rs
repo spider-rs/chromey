@@ -5,19 +5,19 @@ use std::time::{Duration, Instant};
 
 use serde_json::map::Entry;
 
-use chromiumoxide_cdp::cdp::browser_protocol::network::LoaderId;
-use chromiumoxide_cdp::cdp::browser_protocol::page::{
+use chromey_cdp::cdp::browser_protocol::network::LoaderId;
+use chromey_cdp::cdp::browser_protocol::page::{
     AddScriptToEvaluateOnNewDocumentParams, CreateIsolatedWorldParams, EventFrameDetached,
     EventFrameStartedLoading, EventFrameStoppedLoading, EventLifecycleEvent,
     EventNavigatedWithinDocument, Frame as CdpFrame, FrameTree,
 };
-use chromiumoxide_cdp::cdp::browser_protocol::target::EventAttachedToTarget;
-use chromiumoxide_cdp::cdp::js_protocol::runtime::*;
-use chromiumoxide_cdp::cdp::{
+use chromey_cdp::cdp::browser_protocol::target::EventAttachedToTarget;
+use chromey_cdp::cdp::js_protocol::runtime::*;
+use chromey_cdp::cdp::{
     browser_protocol::page::{self, FrameId},
     // js_protocol::runtime,
 };
-use chromiumoxide_types::{Method, MethodId, Request};
+use chromey_types::{Method, MethodId, Request};
 use spider_fingerprint::BASE_CHROME_VERSION;
 
 use crate::error::DeadlineExceeded;
@@ -1232,11 +1232,11 @@ mod tests {
         // Dispatch 10 same-document navigations.
         for _ in 0..10 {
             fm.on_frame_navigated_within_document(
-                &chromiumoxide_cdp::cdp::browser_protocol::page::EventNavigatedWithinDocument {
+                &chromey_cdp::cdp::browser_protocol::page::EventNavigatedWithinDocument {
                     frame_id: id.clone(),
                     url: "https://example.com/#a".into(),
                     navigation_type:
-                        chromiumoxide_cdp::cdp::browser_protocol::page::NavigatedWithinDocumentNavigationType::Fragment,
+                        chromey_cdp::cdp::browser_protocol::page::NavigatedWithinDocumentNavigationType::Fragment,
                 },
             );
         }
