@@ -8,9 +8,9 @@ mod cdp_mock;
 use std::sync::Arc;
 use std::time::Duration;
 
-use chromiumoxide::handler::HandlerConfig;
-use chromiumoxide::Browser;
-use chromiumoxide_cdp::cdp::browser_protocol::page::NavigateParams;
+use chromey::handler::HandlerConfig;
+use chromey::Browser;
+use chromey_cdp::cdp::browser_protocol::page::NavigateParams;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn parallel_handler_completes_navigation() {

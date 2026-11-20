@@ -9,8 +9,8 @@ use crate::cmd::{to_command_response, CommandMessage};
 use crate::error::Result;
 use crate::handler::sender::PageSender;
 use crate::handler::target::TargetMessage;
-use chromiumoxide_cdp::cdp::browser_protocol::target::SessionId;
-use chromiumoxide_types::{Command, CommandResponse, MethodId, Response};
+use chromey_cdp::cdp::browser_protocol::target::SessionId;
+use chromey_types::{Command, CommandResponse, MethodId, Response};
 
 pin_project! {
 
@@ -66,7 +66,7 @@ impl<T: Command> CommandFuture<T> {
 #[cfg(test)]
 mod timeout_tests {
     use super::*;
-    use chromiumoxide_cdp::cdp::js_protocol::runtime::EnableParams;
+    use chromey_cdp::cdp::js_protocol::runtime::EnableParams;
     use std::time::Duration;
 
     #[test]

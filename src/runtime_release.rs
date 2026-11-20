@@ -50,7 +50,7 @@
 //!   other batches.
 
 use crate::page::Page;
-use chromiumoxide_cdp::cdp::js_protocol::runtime::{ReleaseObjectParams, RemoteObjectId};
+use chromey_cdp::cdp::js_protocol::runtime::{ReleaseObjectParams, RemoteObjectId};
 use futures_util::stream::{FuturesUnordered, StreamExt};
 use std::sync::OnceLock;
 use tokio::sync::mpsc;

@@ -1,10 +1,10 @@
 use crate::listeners::{EventListenerRequest, EventListeners};
-use chromiumoxide_cdp::cdp::browser_protocol::browser::*;
-use chromiumoxide_cdp::cdp::browser_protocol::target::*;
-use chromiumoxide_cdp::cdp::events::CdpEvent;
-use chromiumoxide_cdp::cdp::events::CdpEventMessage;
-use chromiumoxide_types::{CallId, Message, Method, Response};
-use chromiumoxide_types::{MethodId, Request as CdpRequest};
+use chromey_cdp::cdp::browser_protocol::browser::*;
+use chromey_cdp::cdp::browser_protocol::target::*;
+use chromey_cdp::cdp::events::CdpEvent;
+use chromey_cdp::cdp::events::CdpEventMessage;
+use chromey_types::{CallId, Message, Method, Response};
+use chromey_types::{MethodId, Request as CdpRequest};
 use fnv::FnvHashMap;
 use futures_util::Stream;
 use hashbrown::{HashMap, HashSet};
@@ -513,7 +513,7 @@ impl Handler {
             _ => {}
         }
 
-        chromiumoxide_cdp::consume_event!(match params {
+        chromey_cdp::consume_event!(match params {
             |ev| self.event_listeners.start_send(ev),
             |json| { let _ = self.event_listeners.try_send_custom(&method, json);}
         });
@@ -756,7 +756,7 @@ impl Handler {
     ///
     /// ```rust,no_run
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// use chromiumoxide::Browser;
+    /// use chromey::Browser;
     /// let (browser, handler) = Browser::launch(Default::default()).await?;
     /// let handler_task = tokio::spawn(handler.run());
     /// // … use browser …
@@ -764,7 +764,7 @@ impl Handler {
     /// # }
     /// ```
     pub async fn run(mut self) -> Result<()> {
-        use chromiumoxide_types::Message;
+        use chromey_types::Message;
         use tokio_tungstenite::tungstenite::{self, error::ProtocolError};
 
         // Validate before spawning socket tasks so a delayed run cannot leak
@@ -789,7 +789,7 @@ impl Handler {
 
         // Helper to mint call-ids without &mut self.conn.
         let mut alloc_call_id = || {
-            let id = chromiumoxide_types::CallId::new(next_call_id);
+            let id = chromey_types::CallId::new(next_call_id);
             next_call_id = next_call_id.wrapping_add(1);
             id
         };
@@ -798,7 +798,7 @@ impl Handler {
         macro_rules! ws_submit {
             ($method:expr, $session_id:expr, $params:expr) => {{
                 let id = alloc_call_id();
-                let call = chromiumoxide_types::MethodCall {
+                let call = chromey_types::MethodCall {
                     id,
                     method: $method,
                     session_id: $session_id,
@@ -1148,8 +1148,8 @@ impl Handler {
         &mut self,
         params: CreateTargetParams,
         tx: OneshotSender<Result<Page>>,
-        alloc_call_id: &mut impl FnMut() -> chromiumoxide_types::CallId,
-        ws_tx: &tokio::sync::mpsc::Sender<chromiumoxide_types::MethodCall>,
+        alloc_call_id: &mut impl FnMut() -> chromey_types::CallId,
+        ws_tx: &tokio::sync::mpsc::Sender<chromey_types::MethodCall>,
         now: std::time::Instant,
     ) {
         let about_blank = params.url == "about:blank";
@@ -1161,7 +1161,7 @@ impl Handler {
             match serde_json::to_value(params) {
                 Ok(params) => {
                     let id = alloc_call_id();
-                    let call = chromiumoxide_types::MethodCall {
+                    let call = chromey_types::MethodCall {
                         id,
                         method: method.clone(),
                         session_id: None,
@@ -1219,7 +1219,7 @@ impl Handler {
         // The boot command has already been pushed by `Handler::new`; it
         // sits at call_id `next_id - 1`.
         let next_id = async_conn.next_id;
-        let boot_call_id = chromiumoxide_types::CallId::new(next_id.saturating_sub(1));
+        let boot_call_id = chromey_types::CallId::new(next_id.saturating_sub(1));
         let boot_method = DISCOVER_ID.0.clone();
 
         let router = parallel::Router::new(
@@ -1739,7 +1739,7 @@ pub(crate) enum HandlerMessage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chromiumoxide_cdp::cdp::browser_protocol::target::{AttachToTargetReturns, TargetInfo};
+    use chromey_cdp::cdp::browser_protocol::target::{AttachToTargetReturns, TargetInfo};
 
     #[test]
     fn attach_to_target_response_sets_session_id_before_event_arrives() {

@@ -12,24 +12,24 @@ use crate::handler::http::HttpRequest;
 use crate::handler::network_utils::{base_domain_from_host, host_and_rest};
 use aho_corasick::AhoCorasick;
 use case_insensitive_string::CaseInsensitiveString;
-use chromiumoxide_cdp::cdp::browser_protocol::fetch::{RequestPattern, RequestStage};
-use chromiumoxide_cdp::cdp::browser_protocol::network::{
+use chromey_cdp::cdp::browser_protocol::fetch::{RequestPattern, RequestStage};
+use chromey_cdp::cdp::browser_protocol::network::{
     EmulateNetworkConditionsByRuleParams, EventLoadingFailed, EventLoadingFinished,
     EventRequestServedFromCache, EventRequestWillBeSent, EventResponseReceived, Headers,
     InitiatorType, InterceptionId, NetworkConditions, RequestId, ResourceType, Response,
     SetCacheDisabledParams, SetExtraHttpHeadersParams,
 };
-use chromiumoxide_cdp::cdp::browser_protocol::{
+use chromey_cdp::cdp::browser_protocol::{
     fetch::{
         self, AuthChallengeResponse, AuthChallengeResponseResponse, ContinueRequestParams,
         ContinueWithAuthParams, DisableParams, EventAuthRequired, EventRequestPaused,
     },
     network::SetBypassServiceWorkerParams,
 };
-use chromiumoxide_cdp::cdp::browser_protocol::{
+use chromey_cdp::cdp::browser_protocol::{
     network::EnableParams, security::SetIgnoreCertificateErrorsParams,
 };
-use chromiumoxide_types::{Command, Method, MethodId};
+use chromey_types::{Command, Method, MethodId};
 use hashbrown::{HashMap, HashSet};
 use lazy_static::lazy_static;
 use reqwest::header::PROXY_AUTHORIZATION;
@@ -219,7 +219,7 @@ lazy_static! {
     };
 
     /// Enable the fetch intercept command
-    pub static ref ENABLE_FETCH: chromiumoxide_cdp::cdp::browser_protocol::fetch::EnableParams = {
+    pub static ref ENABLE_FETCH: chromey_cdp::cdp::browser_protocol::fetch::EnableParams = {
         fetch::EnableParams::builder()
         .handle_auth_requests(true)
         .pattern(RequestPattern::builder().url_pattern("*").request_stage(RequestStage::Request).build())
@@ -971,11 +971,11 @@ impl NetworkManager {
     /// Fail request
     fn fail_request_blocked(
         &mut self,
-        request_id: &chromiumoxide_cdp::cdp::browser_protocol::fetch::RequestId,
+        request_id: &chromey_cdp::cdp::browser_protocol::fetch::RequestId,
     ) {
-        let params = chromiumoxide_cdp::cdp::browser_protocol::fetch::FailRequestParams::new(
+        let params = chromey_cdp::cdp::browser_protocol::fetch::FailRequestParams::new(
             request_id.clone(),
-            chromiumoxide_cdp::cdp::browser_protocol::network::ErrorReason::BlockedByClient,
+            chromey_cdp::cdp::browser_protocol::network::ErrorReason::BlockedByClient,
         );
         self.push_cdp_request(params);
     }
@@ -984,9 +984,9 @@ impl NetworkManager {
     /// Fulfill request
     fn fulfill_request_empty_200(
         &mut self,
-        request_id: &chromiumoxide_cdp::cdp::browser_protocol::fetch::RequestId,
+        request_id: &chromey_cdp::cdp::browser_protocol::fetch::RequestId,
     ) {
-        let params = chromiumoxide_cdp::cdp::browser_protocol::fetch::FulfillRequestParams::new(
+        let params = chromey_cdp::cdp::browser_protocol::fetch::FulfillRequestParams::new(
             request_id.clone(),
             200,
         );
@@ -1000,7 +1000,7 @@ impl NetworkManager {
     /// `headers` should be response headers (e.g. Content-Type, Cache-Control, etc).
     fn fulfill_request_from_cache(
         &mut self,
-        request_id: &chromiumoxide_cdp::cdp::browser_protocol::fetch::RequestId,
+        request_id: &chromey_cdp::cdp::browser_protocol::fetch::RequestId,
         body: &[u8],
         headers: &std::collections::HashMap<String, String>,
         status: i64,
@@ -1036,7 +1036,7 @@ impl NetworkManager {
     /// Continue the request url.
     fn continue_request_with_url(
         &mut self,
-        request_id: &chromiumoxide_cdp::cdp::browser_protocol::fetch::RequestId,
+        request_id: &chromey_cdp::cdp::browser_protocol::fetch::RequestId,
         url: Option<&str>,
         intercept_response: bool,
     ) {
@@ -1758,7 +1758,7 @@ impl NetworkManager {
                 failed.method = Some(event.request.method.clone());
                 failed.failure_text = Some("net::ERR_TOO_MANY_REDIRECTS".into());
                 self.push_cdp_request(
-                    chromiumoxide_cdp::cdp::browser_protocol::page::StopLoadingParams::default(),
+                    chromey_cdp::cdp::browser_protocol::page::StopLoadingParams::default(),
                 );
                 self.queued_events
                     .push_back(NetworkEvent::RequestFailed(failed));
@@ -1921,16 +1921,16 @@ mod tests {
     #[cfg(feature = "adblock")]
     fn make_request_paused(
         url: &str,
-        resource_type: chromiumoxide_cdp::cdp::browser_protocol::network::ResourceType,
+        resource_type: chromey_cdp::cdp::browser_protocol::network::ResourceType,
         is_same_site: bool,
-    ) -> chromiumoxide_cdp::cdp::browser_protocol::fetch::EventRequestPaused {
-        use chromiumoxide_cdp::cdp::browser_protocol::fetch::EventRequestPaused;
-        use chromiumoxide_cdp::cdp::browser_protocol::network::{
+    ) -> chromey_cdp::cdp::browser_protocol::fetch::EventRequestPaused {
+        use chromey_cdp::cdp::browser_protocol::fetch::EventRequestPaused;
+        use chromey_cdp::cdp::browser_protocol::network::{
             Headers, Request, RequestReferrerPolicy, ResourcePriority,
         };
 
         EventRequestPaused {
-            request_id: chromiumoxide_cdp::cdp::browser_protocol::network::RequestId::from(
+            request_id: chromey_cdp::cdp::browser_protocol::network::RequestId::from(
                 "test-req".to_string(),
             )
             .into(),
@@ -1949,7 +1949,7 @@ mod tests {
                 is_same_site: Some(is_same_site),
                 is_ad_related: None,
             },
-            frame_id: chromiumoxide_cdp::cdp::browser_protocol::page::FrameId::from(
+            frame_id: chromey_cdp::cdp::browser_protocol::page::FrameId::from(
                 "frame1".to_string(),
             ),
             resource_type,
@@ -1965,7 +1965,7 @@ mod tests {
     #[cfg(feature = "adblock")]
     #[test]
     fn test_detect_ad_blocks_known_tracker_scripts() {
-        use chromiumoxide_cdp::cdp::browser_protocol::network::ResourceType;
+        use chromey_cdp::cdp::browser_protocol::network::ResourceType;
 
         let mut nm = NetworkManager::new(false, Duration::from_secs(30));
         nm.set_page_url("https://www.wine-searcher.com/".to_string());
@@ -1985,7 +1985,7 @@ mod tests {
     #[cfg(feature = "adblock")]
     #[test]
     fn test_detect_ad_allows_legitimate_scripts() {
-        use chromiumoxide_cdp::cdp::browser_protocol::network::ResourceType;
+        use chromey_cdp::cdp::browser_protocol::network::ResourceType;
 
         let mut nm = NetworkManager::new(false, Duration::from_secs(30));
         nm.set_page_url("https://www.mylegitsite-test.com/".to_string());
@@ -2005,7 +2005,7 @@ mod tests {
     #[cfg(feature = "adblock")]
     #[test]
     fn test_detect_ad_uses_source_domain() {
-        use chromiumoxide_cdp::cdp::browser_protocol::network::ResourceType;
+        use chromey_cdp::cdp::browser_protocol::network::ResourceType;
 
         let mut nm = NetworkManager::new(false, Duration::from_secs(30));
         nm.set_page_url("https://www.wine-searcher.com/some-page".to_string());
@@ -2030,7 +2030,7 @@ mod tests {
     #[cfg(feature = "adblock")]
     #[test]
     fn test_custom_adblock_engine_takes_precedence() {
-        use chromiumoxide_cdp::cdp::browser_protocol::network::ResourceType;
+        use chromey_cdp::cdp::browser_protocol::network::ResourceType;
 
         let mut nm = NetworkManager::new(false, Duration::from_secs(30));
         nm.set_page_url("https://example.com/".to_string());
@@ -2061,7 +2061,7 @@ mod tests {
     fn run_full_interception(
         nm: &mut NetworkManager,
         url: &str,
-        resource_type: chromiumoxide_cdp::cdp::browser_protocol::network::ResourceType,
+        resource_type: chromey_cdp::cdp::browser_protocol::network::ResourceType,
         is_same_site: bool,
     ) -> bool {
         use super::NetworkEvent;
@@ -2090,7 +2090,7 @@ mod tests {
     #[cfg(feature = "adblock")]
     #[test]
     fn test_e2e_tracker_script_blocked() {
-        use chromiumoxide_cdp::cdp::browser_protocol::network::ResourceType;
+        use chromey_cdp::cdp::browser_protocol::network::ResourceType;
 
         let mut nm = NetworkManager::new(false, Duration::from_secs(30));
         nm.set_page_url("https://www.wine-searcher.com/".to_string());
@@ -2109,7 +2109,7 @@ mod tests {
     #[cfg(feature = "adblock")]
     #[test]
     fn test_e2e_legitimate_script_allowed() {
-        use chromiumoxide_cdp::cdp::browser_protocol::network::ResourceType;
+        use chromey_cdp::cdp::browser_protocol::network::ResourceType;
 
         let mut nm = NetworkManager::new(false, Duration::from_secs(30));
         nm.set_page_url("https://www.mylegitsite-test.com/".to_string());
@@ -2128,7 +2128,7 @@ mod tests {
     #[cfg(feature = "adblock")]
     #[test]
     fn test_e2e_analytics_xhr_blocked() {
-        use chromiumoxide_cdp::cdp::browser_protocol::network::ResourceType;
+        use chromey_cdp::cdp::browser_protocol::network::ResourceType;
 
         let mut nm = NetworkManager::new(false, Duration::from_secs(30));
         nm.set_page_url("https://example.org/".to_string());
@@ -2147,7 +2147,7 @@ mod tests {
     #[cfg(feature = "adblock")]
     #[test]
     fn test_e2e_whitelisted_overrides_adblock() {
-        use chromiumoxide_cdp::cdp::browser_protocol::network::ResourceType;
+        use chromey_cdp::cdp::browser_protocol::network::ResourceType;
 
         let mut nm = NetworkManager::new(false, Duration::from_secs(30));
         nm.set_page_url("https://example.org/".to_string());
@@ -2168,7 +2168,7 @@ mod tests {
     #[cfg(feature = "adblock")]
     #[test]
     fn test_e2e_blacklist_strict_overrides_whitelist() {
-        use chromiumoxide_cdp::cdp::browser_protocol::network::ResourceType;
+        use chromey_cdp::cdp::browser_protocol::network::ResourceType;
 
         let mut nm = NetworkManager::new(false, Duration::from_secs(30));
         nm.set_page_url("https://example.org/".to_string());
@@ -2190,7 +2190,7 @@ mod tests {
     #[cfg(feature = "adblock")]
     #[test]
     fn test_e2e_first_party_stylesheet_passes_when_block_stylesheets_on() {
-        use chromiumoxide_cdp::cdp::browser_protocol::network::ResourceType;
+        use chromey_cdp::cdp::browser_protocol::network::ResourceType;
 
         let mut nm = NetworkManager::new(false, Duration::from_secs(30));
         nm.set_page_url("https://developer.intuit.com/".to_string());
@@ -2210,7 +2210,7 @@ mod tests {
     #[cfg(feature = "adblock")]
     #[test]
     fn test_e2e_first_party_stylesheet_blocked_when_allow_disabled() {
-        use chromiumoxide_cdp::cdp::browser_protocol::network::ResourceType;
+        use chromey_cdp::cdp::browser_protocol::network::ResourceType;
 
         let mut nm = NetworkManager::new(false, Duration::from_secs(30));
         nm.set_page_url("https://developer.intuit.com/".to_string());
@@ -2231,7 +2231,7 @@ mod tests {
     #[cfg(feature = "adblock")]
     #[test]
     fn test_e2e_third_party_stylesheet_still_blocked_with_default_allow() {
-        use chromiumoxide_cdp::cdp::browser_protocol::network::ResourceType;
+        use chromey_cdp::cdp::browser_protocol::network::ResourceType;
 
         // requestWillBeSent fired with `initiator.type = "script"` —
         // disqualifies the legacy heuristic fallback. Default first-party
@@ -2263,7 +2263,7 @@ mod tests {
             "type": "Stylesheet",
             "frameId": "frame1"
         });
-        let rwbs_event: chromiumoxide_cdp::cdp::browser_protocol::network::EventRequestWillBeSent =
+        let rwbs_event: chromey_cdp::cdp::browser_protocol::network::EventRequestWillBeSent =
             serde_json::from_value(rwbs_json).unwrap();
         nm.on_request_will_be_sent(&rwbs_event);
 
@@ -2273,7 +2273,7 @@ mod tests {
         while nm.poll().is_some() {}
         let mut paused_event = make_request_paused(rwbs_url, ResourceType::Stylesheet, false);
         paused_event.network_id = Some(
-            chromiumoxide_cdp::cdp::browser_protocol::network::RequestId::from(
+            chromey_cdp::cdp::browser_protocol::network::RequestId::from(
                 "tp-css-1".to_string(),
             ),
         );
@@ -2297,7 +2297,7 @@ mod tests {
     #[cfg(feature = "adblock")]
     #[test]
     fn test_e2e_first_party_image_passes_when_ignore_visuals_on() {
-        use chromiumoxide_cdp::cdp::browser_protocol::network::ResourceType;
+        use chromey_cdp::cdp::browser_protocol::network::ResourceType;
 
         let mut nm = NetworkManager::new(false, Duration::from_secs(30));
         nm.set_page_url("https://shop.example/".to_string());
@@ -2317,7 +2317,7 @@ mod tests {
     #[cfg(feature = "adblock")]
     #[test]
     fn test_e2e_third_party_image_blocked_when_ignore_visuals_on() {
-        use chromiumoxide_cdp::cdp::browser_protocol::network::ResourceType;
+        use chromey_cdp::cdp::browser_protocol::network::ResourceType;
 
         let mut nm = NetworkManager::new(false, Duration::from_secs(30));
         nm.set_page_url("https://shop.example/".to_string());
@@ -2337,7 +2337,7 @@ mod tests {
     #[cfg(feature = "adblock")]
     #[test]
     fn test_e2e_first_party_document_not_blocked() {
-        use chromiumoxide_cdp::cdp::browser_protocol::network::ResourceType;
+        use chromey_cdp::cdp::browser_protocol::network::ResourceType;
 
         let mut nm = NetworkManager::new(false, Duration::from_secs(30));
         nm.set_page_url("https://www.nytimes.com/".to_string());
@@ -2356,7 +2356,7 @@ mod tests {
     #[cfg(feature = "adblock")]
     #[test]
     fn test_e2e_custom_engine_blocks_through_pipeline() {
-        use chromiumoxide_cdp::cdp::browser_protocol::network::ResourceType;
+        use chromey_cdp::cdp::browser_protocol::network::ResourceType;
 
         let mut nm = NetworkManager::new(false, Duration::from_secs(30));
         nm.set_page_url("https://mysite.com/".to_string());
@@ -2393,7 +2393,7 @@ mod tests {
     #[cfg(feature = "adblock")]
     #[test]
     fn test_e2e_ad_image_blocked() {
-        use chromiumoxide_cdp::cdp::browser_protocol::network::ResourceType;
+        use chromey_cdp::cdp::browser_protocol::network::ResourceType;
 
         let mut nm = NetworkManager::new(false, Duration::from_secs(30));
         nm.set_page_url("https://www.mylegitsite-test.com/".to_string());
@@ -2424,7 +2424,7 @@ mod tests {
     #[cfg(feature = "adblock")]
     #[test]
     fn test_e2e_hostname_with_userinfo() {
-        use chromiumoxide_cdp::cdp::browser_protocol::network::ResourceType;
+        use chromey_cdp::cdp::browser_protocol::network::ResourceType;
 
         let mut nm = NetworkManager::new(false, Duration::from_secs(30));
         nm.set_page_url("https://example.org/".to_string());
@@ -2470,7 +2470,7 @@ mod tests {
         url: &str,
         resource_type: &str,
         redirect_from_url: Option<&str>,
-    ) -> chromiumoxide_cdp::cdp::browser_protocol::network::EventRequestWillBeSent {
+    ) -> chromey_cdp::cdp::browser_protocol::network::EventRequestWillBeSent {
         let mut v = serde_json::json!({
             "requestId": request_id,
             "loaderId": "test-loader",

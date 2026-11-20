@@ -13,9 +13,9 @@ mod cdp_mock;
 
 use std::time::Duration;
 
-use chromiumoxide::handler::HandlerConfig;
-use chromiumoxide::{Browser, Page};
-use chromiumoxide_cdp::cdp::browser_protocol::page::NavigateParams;
+use chromey::handler::HandlerConfig;
+use chromey::{Browser, Page};
+use chromey_cdp::cdp::browser_protocol::page::NavigateParams;
 use tokio::time::timeout;
 
 async fn setup() -> (cdp_mock::CdpMock, Browser, Page) {
@@ -151,7 +151,7 @@ async fn armed_navigate_uses_the_page_navigate_method_string() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn armed_navigate_preserves_every_standard_field() {
-    use chromiumoxide_cdp::cdp::browser_protocol::page::{FrameId, ReferrerPolicy, TransitionType};
+    use chromey_cdp::cdp::browser_protocol::page::{FrameId, ReferrerPolicy, TransitionType};
 
     let base = NavigateParams {
         url: "https://fields.test/page".into(),

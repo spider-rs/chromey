@@ -1,5 +1,5 @@
-use chromiumoxide::browser::{Browser, BrowserConfig};
-use chromiumoxide_cdp::cdp::js_protocol::runtime::{AddBindingParams, EventBindingCalled};
+use chromey::browser::{Browser, BrowserConfig};
+use chromey_cdp::cdp::js_protocol::runtime::{AddBindingParams, EventBindingCalled};
 use futures_util::StreamExt;
 use std::sync::Arc;
 use tokio::sync::Mutex;

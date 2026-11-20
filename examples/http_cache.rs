@@ -1,6 +1,6 @@
 // RUST_LOG=debug cargo run --example http_cache --features="cache"
 // startup the [hybrid_cache_server](https://github.com/spider-rs/hybrid_cache_server)
-use chromiumoxide::{
+use chromey::{
     browser::Browser,
     cache::{BasicCachePolicy, CacheStrategy},
     handler::HandlerConfig,

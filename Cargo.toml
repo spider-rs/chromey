@@ -1,19 +1,17 @@
 [package]
 name = "chromey"
-version = "2.58.3"
+version = "3.0.0"
 rust-version = "1.70"
 authors = ["j-mendez <jeff@spider.cloud>"]
 edition = "2021"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 homepage = "https://github.com/spider-rs/chromey"
+documentation = "https://docs.rs/chromey"
 repository = "https://github.com/spider-rs/chromey"
-description = "Concurrent chrome devtools protocol automation library for Rust"
-keywords = ["chrome", "cdp", "puppeteer", "automation","playwright"]
+description = "Fast, concurrent Chrome DevTools Protocol automation for Rust. Drive Chrome the way Puppeteer does, without the overhead."
+keywords = ["chrome", "cdp", "puppeteer", "automation", "headless"]
 categories = ["web-programming", "api-bindings", "development-tools::testing"]
-
-[lib]
-name = "chromiumoxide"
 
 [dependencies]
 tokio-tungstenite = "0.29"
@@ -50,9 +48,9 @@ aho-corasick = "1"
 memchr = "2"
 sonic-rs = { version = "0.5", optional = true, features = ["utf8_lossy"] }
 spider_network_blocker = "0"
-spider_chromiumoxide_types = { path = "types", version = "0.7.6" }
-spider_chromiumoxide_cdp = { path = "cdp", version = "0.7" }
-spider_chromiumoxide_fetcher = { path = "fetcher", version = "0.8", default-features = false, optional = true }
+chromey_types = { path = "types", version = "3" }
+chromey_cdp = { path = "cdp", version = "3" }
+chromey_fetcher = { path = "fetcher", version = "3", default-features = false, optional = true }
 http-cache-semantics = { version = "3", optional = true }
 http-cache = { version = "=1.0.0-alpha.7", optional = true, default-features = false, features = ["url-standard"] }
 http-cache-reqwest = { version = "=1.0.0-alpha.7", optional = true, default-features = false }
@@ -114,7 +112,7 @@ firewall-rustls = ["firewall", "spider_firewall/rustls"]
 chrome_tls_connection = ["tokio-tungstenite/native-tls"]
 default-tls = ["reqwest/default-tls"]
 rust-tls = ["reqwest/rustls"]
-serde0 = ["spider_chromiumoxide_cdp/serde0"]
+serde0 = ["chromey_cdp/serde0"]
 auto-detect-executable = ["dep:which"]
 dynamic-versions = ["spider_fingerprint/dynamic-versions"]
 _cache = [
@@ -141,11 +139,11 @@ parallel-handler = []
 # See https://github.com/rust-lang/cargo/issues/10801
 _fetcher-rusttls-tokio = [
     "fetcher",
-    "spider_chromiumoxide_fetcher/_rustls-tokio",
+    "chromey_fetcher/_rustls-tokio",
 ]
 _fetcher-native-tokio = [
     "fetcher",
-    "spider_chromiumoxide_fetcher/_native-tokio",
+    "chromey_fetcher/_native-tokio",
 ]
 
 [profile.release]

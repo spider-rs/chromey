@@ -21,9 +21,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use chromiumoxide_cdp::cdp::browser_protocol::target::{AttachToTargetParams, SessionId};
-use chromiumoxide_cdp::cdp::CdpEventMessage;
-use chromiumoxide_types::{CallId, MethodCall, MethodId, Request, Response};
+use chromey_cdp::cdp::browser_protocol::target::{AttachToTargetParams, SessionId};
+use chromey_cdp::cdp::CdpEventMessage;
+use chromey_types::{CallId, MethodCall, MethodId, Request, Response};
 use tokio::sync::mpsc;
 use tokio::sync::oneshot::Sender as OneshotSender;
 use tokio::sync::Notify;

@@ -10,7 +10,7 @@ use crate::{
     utils::is_data_resource,
 };
 use base64::{engine::general_purpose, Engine as _};
-use chromiumoxide_cdp::cdp::browser_protocol::fetch::{RequestPattern, RequestStage};
+use chromey_cdp::cdp::browser_protocol::fetch::{RequestPattern, RequestStage};
 use http_cache_reqwest::CacheManager;
 use reqwest::StatusCode;
 use spider_fingerprint::http;
@@ -1085,7 +1085,7 @@ async fn fetch_response_body_oneshot(
     ev: &std::sync::Arc<EventRequestPaused>,
     dedup_key: &str,
 ) -> Option<Vec<u8>> {
-    use chromiumoxide_cdp::cdp::browser_protocol::fetch::GetResponseBodyParams;
+    use chromey_cdp::cdp::browser_protocol::fetch::GetResponseBodyParams;
 
     let result = page
         .execute(GetResponseBodyParams::new(ev.request_id.clone()))

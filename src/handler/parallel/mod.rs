@@ -34,8 +34,8 @@ pub(crate) use router::Router;
 /// Reject before acceptance when the bounded writer queue is saturated. No
 /// event loop may wait here: it owns request eviction and cancellation.
 fn try_submit(
-    tx: &tokio::sync::mpsc::Sender<chromiumoxide_types::MethodCall>,
-    call: chromiumoxide_types::MethodCall,
+    tx: &tokio::sync::mpsc::Sender<chromey_types::MethodCall>,
+    call: chromey_types::MethodCall,
 ) -> crate::error::Result<()> {
     tx.try_send(call).map_err(|err| match err {
         tokio::sync::mpsc::error::TrySendError::Full(_) => {

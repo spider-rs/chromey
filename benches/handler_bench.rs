@@ -8,14 +8,14 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
 use std::time::{Duration, Instant};
 
-use chromiumoxide::cmd::CommandMessage;
-use chromiumoxide::handler::commandfuture::CommandFuture;
-use chromiumoxide::handler::sender::PageSender;
-use chromiumoxide::handler::target::TargetMessage;
-use chromiumoxide::listeners::{EventListenerRequest, EventListeners};
+use chromey::cmd::CommandMessage;
+use chromey::handler::commandfuture::CommandFuture;
+use chromey::handler::sender::PageSender;
+use chromey::handler::target::TargetMessage;
+use chromey::listeners::{EventListenerRequest, EventListeners};
 
-use chromiumoxide_cdp::cdp::browser_protocol::page::NavigateParams;
-use chromiumoxide_cdp::cdp::browser_protocol::target::SessionId;
+use chromey_cdp::cdp::browser_protocol::page::NavigateParams;
+use chromey_cdp::cdp::browser_protocol::target::SessionId;
 
 /// Create a no-op waker for synchronous polling in benchmarks.
 fn noop_waker() -> Waker {
@@ -33,7 +33,7 @@ fn bench_command_message_creation(c: &mut Criterion) {
         b.iter(|| {
             let cmd = NavigateParams::new("https://example.com");
             let (tx, _rx) = tokio::sync::oneshot::channel::<
-                chromiumoxide::error::Result<chromiumoxide_types::Response>,
+                chromey::error::Result<chromey_types::Response>,
             >();
             let msg = CommandMessage::new(cmd, tx).unwrap();
             black_box(msg);
@@ -47,7 +47,7 @@ fn bench_command_message_with_session(c: &mut Criterion) {
         b.iter(|| {
             let cmd = NavigateParams::new("https://example.com");
             let (tx, _rx) = tokio::sync::oneshot::channel::<
-                chromiumoxide::error::Result<chromiumoxide_types::Response>,
+                chromey::error::Result<chromey_types::Response>,
             >();
             let session = Some(SessionId::from("session-1".to_string()));
             let msg = CommandMessage::with_session(cmd, tx, session).unwrap();
@@ -117,7 +117,7 @@ fn bench_command_future_creation(c: &mut Criterion) {
 
 /// Benchmark: EventListeners dispatch throughput.
 fn bench_event_listeners_dispatch(c: &mut Criterion) {
-    use chromiumoxide_cdp::cdp::browser_protocol::animation::EventAnimationCanceled;
+    use chromey_cdp::cdp::browser_protocol::animation::EventAnimationCanceled;
 
     c.bench_function("EventListeners: dispatch to 10 listeners", |b| {
         let waker = noop_waker();
@@ -177,8 +177,8 @@ fn bench_event_listeners_dispatch(c: &mut Criterion) {
 
 /// Benchmark: CommandChain state machine polling.
 fn bench_command_chain_polling(c: &mut Criterion) {
-    use chromiumoxide::cmd::CommandChain;
-    use chromiumoxide_types::MethodId;
+    use chromey::cmd::CommandChain;
+    use chromey_types::MethodId;
 
     c.bench_function("CommandChain: poll 10 commands to completion", |b| {
         b.iter(|| {
@@ -273,7 +273,7 @@ fn bench_concurrent_independent_channels(c: &mut Criterion) {
                                 for _ in 0..100u64 {
                                     let cmd = NavigateParams::new("https://example.com");
                                     let (otx, _orx) = tokio::sync::oneshot::channel::<
-                                        chromiumoxide::error::Result<chromiumoxide_types::Response>,
+                                        chromey::error::Result<chromey_types::Response>,
                                     >();
                                     let msg = CommandMessage::with_session(
                                         cmd,
@@ -338,7 +338,7 @@ fn bench_concurrent_shared_channel(c: &mut Criterion) {
                                 for _ in 0..100u64 {
                                     let cmd = NavigateParams::new("https://example.com");
                                     let (otx, _orx) = tokio::sync::oneshot::channel::<
-                                        chromiumoxide::error::Result<chromiumoxide_types::Response>,
+                                        chromey::error::Result<chromey_types::Response>,
                                     >();
                                     let msg = CommandMessage::with_session(
                                         cmd,
@@ -403,7 +403,7 @@ fn bench_notify_wakeup(c: &mut Criterion) {
                     for _ in 0..1000u64 {
                         let cmd = NavigateParams::new("https://example.com");
                         let (otx, _orx) = tokio::sync::oneshot::channel::<
-                            chromiumoxide::error::Result<chromiumoxide_types::Response>,
+                            chromey::error::Result<chromey_types::Response>,
                         >();
                         let msg = CommandMessage::with_session(
                             cmd,
@@ -430,7 +430,7 @@ fn bench_notify_wakeup(c: &mut Criterion) {
 /// Benchmark: Bounded WS command channel throughput (handler → writer path).
 /// Measures try_send + recv + try_recv drain, matching the real ws_write_loop.
 fn bench_ws_cmd_channel_throughput(c: &mut Criterion) {
-    use chromiumoxide_types::{CallId, MethodCall, MethodId};
+    use chromey_types::{CallId, MethodCall, MethodId};
 
     let rt = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(4)
@@ -494,7 +494,7 @@ fn bench_ws_cmd_channel_throughput(c: &mut Criterion) {
 /// Benchmark: Serialization throughput for MethodCall (the per-message cost
 /// in the WS write loop).
 fn bench_ws_method_call_serialization(c: &mut Criterion) {
-    use chromiumoxide_types::{CallId, MethodCall, MethodId};
+    use chromey_types::{CallId, MethodCall, MethodId};
 
     // Small payload (typical CDP command).
     let small_call = MethodCall {
@@ -534,7 +534,7 @@ fn bench_ws_method_call_serialization(c: &mut Criterion) {
 /// consumer can drain. Measures how the bounded channel (try_send) degrades
 /// gracefully vs. building up unbounded memory.
 fn bench_ws_cmd_backpressure(c: &mut Criterion) {
-    use chromiumoxide_types::{CallId, MethodCall, MethodId};
+    use chromey_types::{CallId, MethodCall, MethodId};
 
     let rt = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(4)
@@ -603,7 +603,7 @@ fn bench_ws_cmd_backpressure(c: &mut Criterion) {
 //  Network-utils benchmarks — SIMD-accelerated URL / host parsing
 // ---------------------------------------------------------------------------
 
-use chromiumoxide::handler::network_utils::{
+use chromey::handler::network_utils::{
     base_domain_from_any, base_domain_from_host, first_label, host_and_rest,
     host_contains_label_icase, host_is_subdomain_of, rel_for_ignore_script,
 };

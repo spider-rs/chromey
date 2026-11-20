@@ -13,7 +13,7 @@
 
 use crate::page::Page;
 use base64::{engine::general_purpose, Engine as _};
-use chromiumoxide_cdp::cdp::browser_protocol::{
+use chromey_cdp::cdp::browser_protocol::{
     fetch::TakeResponseBodyAsStreamParams,
     io::{CloseParams, ReadParams, StreamHandle},
 };
@@ -412,7 +412,7 @@ pub enum StreamResult {
 
 pub async fn read_response_body_as_stream(
     page: &Page,
-    request_id: impl Into<chromiumoxide_cdp::cdp::browser_protocol::fetch::RequestId>,
+    request_id: impl Into<chromey_cdp::cdp::browser_protocol::fetch::RequestId>,
     content_length_hint: Option<usize>,
 ) -> StreamResult {
     // Ensure the background cleanup worker is running in this runtime

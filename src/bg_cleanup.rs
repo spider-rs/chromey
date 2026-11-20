@@ -94,7 +94,7 @@
 //! deadlock, just deferred or skipped cleanup.
 
 use crate::page::Page;
-use chromiumoxide_cdp::cdp::browser_protocol::io::{CloseParams, StreamHandle};
+use chromey_cdp::cdp::browser_protocol::io::{CloseParams, StreamHandle};
 use futures_util::stream::{FuturesUnordered, StreamExt};
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -140,7 +140,7 @@ async fn run_task(task: CleanupTask) {
         CleanupTask::RemoveFile(path) => {
             if let Err(err) = tokio::fs::remove_file(&path).await {
                 tracing::debug!(
-                    target: "chromiumoxide::bg_cleanup",
+                    target: "chromey::bg_cleanup",
                     "remove_file({}) failed: {err}",
                     path.display(),
                 );

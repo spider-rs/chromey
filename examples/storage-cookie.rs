@@ -1,8 +1,8 @@
 use futures_util::StreamExt;
 
-use chromiumoxide::browser::Browser;
-use chromiumoxide::browser::BrowserConfig;
-use chromiumoxide::cdp::browser_protocol::network::CookieParam;
+use chromey::browser::Browser;
+use chromey::browser::BrowserConfig;
+use chromey::cdp::browser_protocol::network::CookieParam;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -15,7 +15,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = browser.new_page("https://setcookie.net/").await?;
     let example_cookie = CookieParam::builder()
         .domain(".setcookie.net")
-        .name("set_from_chromiumoxide")
+        .name("set_from_chromey")
         .value("Test Value")
         .path("/")
         .build()?;

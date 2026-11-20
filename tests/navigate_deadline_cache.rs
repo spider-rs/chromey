@@ -18,11 +18,11 @@ mod cdp_mock;
 use std::collections::HashMap;
 use std::time::Duration;
 
-use chromiumoxide::cache::manager::{create_cache_key_raw, put_hybrid_cache};
-use chromiumoxide::handler::HandlerConfig;
-use chromiumoxide::http::{HttpResponse, HttpVersion};
-use chromiumoxide::{Browser, Page};
-use chromiumoxide_cdp::cdp::browser_protocol::page::NavigateParams;
+use chromey::cache::manager::{create_cache_key_raw, put_hybrid_cache};
+use chromey::handler::HandlerConfig;
+use chromey::http::{HttpResponse, HttpVersion};
+use chromey::{Browser, Page};
+use chromey_cdp::cdp::browser_protocol::page::NavigateParams;
 use tokio::time::timeout;
 
 async fn setup() -> (cdp_mock::CdpMock, Browser, Page) {

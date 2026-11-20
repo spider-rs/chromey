@@ -26,10 +26,10 @@ use std::time::{Duration, Instant};
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 
-use chromiumoxide::handler::HandlerConfig;
-use chromiumoxide::Browser;
-use chromiumoxide::Page;
-use chromiumoxide_cdp::cdp::js_protocol::runtime::EvaluateParams;
+use chromey::handler::HandlerConfig;
+use chromey::Browser;
+use chromey::Page;
+use chromey_cdp::cdp::js_protocol::runtime::EvaluateParams;
 
 const PAGE_COUNTS: &[usize] = &[1, 2, 4, 8, 16, 32];
 const CMDS_PER_PAGE: usize = 64;
@@ -39,7 +39,7 @@ struct Harness {
     _mock: cdp_mock::CdpMock,
     _browser: Arc<Browser>,
     pages: Vec<Page>,
-    _handler: tokio::task::JoinHandle<chromiumoxide::error::Result<()>>,
+    _handler: tokio::task::JoinHandle<chromey::error::Result<()>>,
 }
 
 /// Which handler driver to use for a given setup.

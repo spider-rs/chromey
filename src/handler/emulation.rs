@@ -1,8 +1,8 @@
-use chromiumoxide_cdp::cdp::browser_protocol::emulation::{
+use chromey_cdp::cdp::browser_protocol::emulation::{
     ScreenOrientation, ScreenOrientationType, SetDeviceMetricsOverrideParams,
     SetTouchEmulationEnabledParams,
 };
-use chromiumoxide_types::Method;
+use chromey_types::Method;
 
 use crate::cmd::CommandChain;
 use crate::handler::viewport::Viewport;

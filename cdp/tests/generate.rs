@@ -1,5 +1,5 @@
-use chromiumoxide_cdp::CURRENT_REVISION;
-use chromiumoxide_pdl::build::Generator;
+use chromey_cdp::CURRENT_REVISION;
+use chromey_pdl::build::Generator;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};

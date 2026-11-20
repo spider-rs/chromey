@@ -1,18 +1,18 @@
 [package]
-name = "spider_chromiumoxide_fetcher"
-version = "0.8.1"
+name = "chromey_fetcher"
+version = "3.0.0"
 authors = ["Matthias Seitz <matthias.seitz@outlook.de>", "j-mendez <jeff@spider.cloud>"]
 edition = "2021"
 rust-version = "1.70"
 license = "MIT OR Apache-2.0"
-description = "Contains a chromium and chrome for testing fetcher"
+description = "Chrome for Testing and Chromium downloader for chromey"
 homepage = "https://github.com/spider-rs/chromey"
 repository = "https://github.com/spider-rs/chromey"
 readme = "../README.md"
 include = ["src/**/*", "LICENSE-*"]
 
 [lib]
-name = "chromiumoxide_fetcher"
+name = "chromey_fetcher"
 
 [dev-dependencies]
 ureq = "2.12"

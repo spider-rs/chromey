@@ -16,7 +16,7 @@
 
 use std::time::Duration;
 
-use chromiumoxide_cdp::cdp::browser_protocol::page::{NavigateParams, NavigateReturns};
+use chromey_cdp::cdp::browser_protocol::page::{NavigateParams, NavigateReturns};
 use serde::Serialize;
 
 /// Standard `Page.navigate` params plus a `timeout` deadline in milliseconds.
@@ -71,14 +71,14 @@ fn duration_as_millis_i64(duration: Duration) -> i64 {
     i64::try_from(duration.as_millis()).unwrap_or(i64::MAX)
 }
 
-impl chromiumoxide_types::Method for NavigateWithDeadlineParams {
-    fn identifier(&self) -> chromiumoxide_types::MethodId {
+impl chromey_types::Method for NavigateWithDeadlineParams {
+    fn identifier(&self) -> chromey_types::MethodId {
         NavigateParams::IDENTIFIER.into()
     }
 }
 
-impl chromiumoxide_types::MethodType for NavigateWithDeadlineParams {
-    fn method_id() -> chromiumoxide_types::MethodId
+impl chromey_types::MethodType for NavigateWithDeadlineParams {
+    fn method_id() -> chromey_types::MethodId
     where
         Self: Sized,
     {
@@ -86,14 +86,14 @@ impl chromiumoxide_types::MethodType for NavigateWithDeadlineParams {
     }
 }
 
-impl chromiumoxide_types::Command for NavigateWithDeadlineParams {
+impl chromey_types::Command for NavigateWithDeadlineParams {
     type Response = NavigateReturns;
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chromiumoxide_types::{Method, MethodType};
+    use chromey_types::{Method, MethodType};
 
     #[test]
     fn method_string_is_page_navigate() {
@@ -149,15 +149,15 @@ mod tests {
             url: "https://example.test/page".into(),
             referrer: Some("https://referrer.test/".into()),
             transition_type: Some(
-                chromiumoxide_cdp::cdp::browser_protocol::page::TransitionType::Link,
+                chromey_cdp::cdp::browser_protocol::page::TransitionType::Link,
             ),
             frame_id: Some(
-                chromiumoxide_cdp::cdp::browser_protocol::page::FrameId::from(
+                chromey_cdp::cdp::browser_protocol::page::FrameId::from(
                     "frame-abc".to_string(),
                 ),
             ),
             referrer_policy: Some(
-                chromiumoxide_cdp::cdp::browser_protocol::page::ReferrerPolicy::NoReferrer,
+                chromey_cdp::cdp::browser_protocol::page::ReferrerPolicy::NoReferrer,
             ),
         };
         let plain = serde_json::to_value(&base).expect("serialize plain");

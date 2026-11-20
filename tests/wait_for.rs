@@ -14,7 +14,7 @@
 //! Run with:
 //!   cargo test --test wait_for
 
-use chromiumoxide::browser::{Browser, BrowserConfig, HeadlessMode};
+use chromey::browser::{Browser, BrowserConfig, HeadlessMode};
 use futures_util::StreamExt;
 use std::path::PathBuf;
 use tokio::time::{timeout, Duration};

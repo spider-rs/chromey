@@ -21,23 +21,23 @@ use crate::handler::{Handler, HandlerConfig, HandlerMessage, REQUEST_TIMEOUT};
 use crate::listeners::{EventListenerRequest, EventStream};
 use crate::page::Page;
 use crate::utils;
-use chromiumoxide_cdp::cdp::browser_protocol::browser::{
+use chromey_cdp::cdp::browser_protocol::browser::{
     BrowserContextId, CloseReturns, GetVersionParams, GetVersionReturns,
 };
-use chromiumoxide_cdp::cdp::browser_protocol::browser::{
+use chromey_cdp::cdp::browser_protocol::browser::{
     PermissionDescriptor, PermissionSetting, SetPermissionParams,
 };
-use chromiumoxide_cdp::cdp::browser_protocol::network::{Cookie, CookieParam};
-use chromiumoxide_cdp::cdp::browser_protocol::storage::{
+use chromey_cdp::cdp::browser_protocol::network::{Cookie, CookieParam};
+use chromey_cdp::cdp::browser_protocol::storage::{
     ClearCookiesParams, GetCookiesParams, SetCookiesParams,
 };
-use chromiumoxide_cdp::cdp::browser_protocol::target::{
+use chromey_cdp::cdp::browser_protocol::target::{
     CreateBrowserContextParams, CreateTargetParams, DisposeBrowserContextParams,
     GetBrowserContextsParams, GetBrowserContextsReturns, TargetId, TargetInfo,
 };
 
-use chromiumoxide_cdp::cdp::{CdpEventMessage, IntoEventKind};
-use chromiumoxide_types::*;
+use chromey_cdp::cdp::{CdpEventMessage, IntoEventKind};
+use chromey_types::*;
 use spider_network_blocker::intercept_manager::NetworkInterceptManager;
 
 /// Default `Browser::launch` timeout in MS
@@ -67,7 +67,7 @@ pub fn request_client() -> &'static reqwest::Client {
     &REQUEST_CLIENT
 }
 
-/// A [`Browser`] is created when chromiumoxide connects to a Chromium instance.
+/// A [`Browser`] is created when chromey connects to a Chromium instance.
 #[derive(Debug)]
 pub struct Browser {
     /// The `Sender` to send messages to the connection handler that drives the
@@ -1551,10 +1551,10 @@ impl BrowserConfig {
         } else {
             // If the user did not specify a data directory, this would default to the systems default
             // data directory. In most cases, we would rather have a fresh instance of Chromium. Specify
-            // a temp dir just for chromiumoxide instead.
+            // a temp dir just for chromey instead.
             cmd.arg(format!(
                 "--user-data-dir={}",
-                std::env::temp_dir().join("chromiumoxide-runner").display()
+                std::env::temp_dir().join("chromey-runner").display()
             ));
         }
 

@@ -1,7 +1,7 @@
 use std::time::Instant;
 
-use chromiumoxide_cdp::cdp::browser_protocol::network::{InterceptionId, RequestId, Response};
-use chromiumoxide_cdp::cdp::browser_protocol::page::FrameId;
+use chromey_cdp::cdp::browser_protocol::network::{InterceptionId, RequestId, Response};
+use chromey_cdp::cdp::browser_protocol::page::FrameId;
 
 #[derive(Debug, Clone)]
 pub struct HttpRequest {

@@ -4,7 +4,7 @@
 //! domain (alongside standard protocol domains) that surfaces agent-callable
 //! "tools" a page has declared, following the WebMCP tool model (`name`,
 //! `description`, JSON-Schema `inputSchema`). These bindings are hand-written
-//! [`Command`](chromiumoxide_types::Command) implementations issued as raw
+//! [`Command`](chromey_types::Command) implementations issued as raw
 //! method strings — no PDL definitions or code generation involved — mirroring
 //! how other vendor methods (e.g. `Interception.setPolicy`) are sent.
 //!
@@ -58,14 +58,14 @@ impl ListToolsParams {
     pub const IDENTIFIER: &'static str = "WebMCP.listTools";
 }
 
-impl chromiumoxide_types::Method for ListToolsParams {
-    fn identifier(&self) -> chromiumoxide_types::MethodId {
+impl chromey_types::Method for ListToolsParams {
+    fn identifier(&self) -> chromey_types::MethodId {
         Self::IDENTIFIER.into()
     }
 }
 
-impl chromiumoxide_types::MethodType for ListToolsParams {
-    fn method_id() -> chromiumoxide_types::MethodId
+impl chromey_types::MethodType for ListToolsParams {
+    fn method_id() -> chromey_types::MethodId
     where
         Self: Sized,
     {
@@ -81,7 +81,7 @@ pub struct ListToolsReturns {
     pub tools: Vec<Tool>,
 }
 
-impl chromiumoxide_types::Command for ListToolsParams {
+impl chromey_types::Command for ListToolsParams {
     type Response = ListToolsReturns;
 }
 
@@ -120,14 +120,14 @@ impl CallToolParams {
     }
 }
 
-impl chromiumoxide_types::Method for CallToolParams {
-    fn identifier(&self) -> chromiumoxide_types::MethodId {
+impl chromey_types::Method for CallToolParams {
+    fn identifier(&self) -> chromey_types::MethodId {
         Self::IDENTIFIER.into()
     }
 }
 
-impl chromiumoxide_types::MethodType for CallToolParams {
-    fn method_id() -> chromiumoxide_types::MethodId
+impl chromey_types::MethodType for CallToolParams {
+    fn method_id() -> chromey_types::MethodId
     where
         Self: Sized,
     {
@@ -135,7 +135,7 @@ impl chromiumoxide_types::MethodType for CallToolParams {
     }
 }
 
-impl chromiumoxide_types::Command for CallToolParams {
+impl chromey_types::Command for CallToolParams {
     type Response = serde_json::Value;
 }
 
@@ -222,7 +222,7 @@ mod tests {
 
     #[test]
     fn method_identifiers_match_the_domain() {
-        use chromiumoxide_types::Method;
+        use chromey_types::Method;
 
         assert_eq!(ListToolsParams::IDENTIFIER, "WebMCP.listTools");
         assert_eq!(CallToolParams::IDENTIFIER, "WebMCP.callTool");

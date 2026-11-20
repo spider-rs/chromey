@@ -2,12 +2,12 @@ use std::sync::Arc;
 
 use base64::prelude::BASE64_STANDARD;
 use base64::Engine;
-use chromiumoxide::cdp::browser_protocol::fetch::{
+use chromey::cdp::browser_protocol::fetch::{
     ContinueRequestParams, EventRequestPaused, FulfillRequestParams,
 };
 use futures_util::StreamExt;
 
-use chromiumoxide::browser::{Browser, BrowserConfig};
+use chromey::browser::{Browser, BrowserConfig};
 
 const CONTENT: &str = "<html><head></head><body><h1>TEST</h1></body></html>";
 const TARGET: &str = "https://news.ycombinator.com/";

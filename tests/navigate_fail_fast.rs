@@ -3,10 +3,10 @@ mod cdp_mock;
 
 use std::time::{Duration, Instant};
 
-use chromiumoxide::error::CdpError;
-use chromiumoxide::handler::HandlerConfig;
-use chromiumoxide::{Browser, Page};
-use chromiumoxide_cdp::cdp::browser_protocol::page::NavigateParams;
+use chromey::error::CdpError;
+use chromey::handler::HandlerConfig;
+use chromey::{Browser, Page};
+use chromey_cdp::cdp::browser_protocol::page::NavigateParams;
 use futures_util::StreamExt;
 use tokio::time::timeout;
 
@@ -137,7 +137,7 @@ async fn success_path_unchanged() {
     }
 }
 
-fn assert_committed_url(req: &chromiumoxide::handler::http::HttpRequest, url: &str) {
+fn assert_committed_url(req: &chromey::handler::http::HttpRequest, url: &str) {
     // Real requests never populate HttpRequest::url; only the synthetic failed
     // request does. Read response.url for the committed URL instead.
     assert_eq!(req.response.as_ref().map(|r| r.url.as_str()), Some(url));

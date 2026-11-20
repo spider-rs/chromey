@@ -13,8 +13,8 @@ use tokio_tungstenite::tungstenite::Message as WsMessage;
 use tokio_tungstenite::MaybeTlsStream;
 use tokio_tungstenite::{tungstenite::protocol::WebSocketConfig, WebSocketStream};
 
-use chromiumoxide_cdp::cdp::browser_protocol::target::SessionId;
-use chromiumoxide_types::{CallId, EventMessage, Message, MethodCall, MethodId};
+use chromey_cdp::cdp::browser_protocol::target::SessionId;
+use chromey_types::{CallId, EventMessage, Message, MethodCall, MethodId};
 
 use crate::error::CdpError;
 use crate::error::Result;
@@ -708,7 +708,7 @@ where
         Ok(msg) => tx.send(Ok(msg)).await.is_ok(),
         Err(err) => {
             tracing::debug!(
-                target: "chromiumoxide::conn::raw_ws::parse_errors",
+                target: "chromey::conn::raw_ws::parse_errors",
                 "Dropping malformed WS frame: {err}",
             );
             true
@@ -833,7 +833,7 @@ where
                     Some(Ok(WsMessage::Ping(_))) | Some(Ok(WsMessage::Pong(_))) => {}
                     Some(Ok(msg)) => {
                         tracing::debug!(
-                            target: "chromiumoxide::conn::raw_ws::parse_errors",
+                            target: "chromey::conn::raw_ws::parse_errors",
                             "Unexpected WS message type: {:?}",
                             msg
                         );
@@ -1130,7 +1130,7 @@ impl<T: EventMessage + Unpin> Stream for Connection<T> {
                         Ok(msg) => return Poll::Ready(Some(Ok(msg))),
                         Err(err) => {
                             tracing::debug!(
-                                target: "chromiumoxide::conn::raw_ws::parse_errors",
+                                target: "chromey::conn::raw_ws::parse_errors",
                                 "Dropping malformed text WS frame: {err}",
                             );
                             skips += 1;
@@ -1141,7 +1141,7 @@ impl<T: EventMessage + Unpin> Stream for Connection<T> {
                     Ok(msg) => return Poll::Ready(Some(Ok(msg))),
                     Err(err) => {
                         tracing::debug!(
-                            target: "chromiumoxide::conn::raw_ws::parse_errors",
+                            target: "chromey::conn::raw_ws::parse_errors",
                             "Dropping malformed binary WS frame: {err}",
                         );
                         skips += 1;
@@ -1153,7 +1153,7 @@ impl<T: EventMessage + Unpin> Stream for Connection<T> {
                 }
                 Some(Ok(msg)) => {
                     tracing::debug!(
-                        target: "chromiumoxide::conn::raw_ws::parse_errors",
+                        target: "chromey::conn::raw_ws::parse_errors",
                         "Unexpected WS message type: {:?}",
                         msg
                     );
@@ -1188,13 +1188,13 @@ fn decode_message<T: EventMessage>(
             if let Some(txt) = raw_text_for_logging {
                 let preview = &txt[..txt.len().min(512)];
                 tracing::debug!(
-                    target: "chromiumoxide::conn::raw_ws::parse_errors",
+                    target: "chromey::conn::raw_ws::parse_errors",
                     msg_len = txt.len(),
                     "Skipping unrecognized WS message {err} preview={preview}",
                 );
             } else {
                 tracing::debug!(
-                    target: "chromiumoxide::conn::raw_ws::parse_errors",
+                    target: "chromey::conn::raw_ws::parse_errors",
                     "Skipping unrecognized binary WS message {err}",
                 );
             }
@@ -1227,13 +1227,13 @@ fn decode_message<T: EventMessage>(
             if let Some(txt) = raw_text_for_logging {
                 let preview = &txt[..txt.len().min(512)];
                 tracing::debug!(
-                    target: "chromiumoxide::conn::raw_ws::parse_errors",
+                    target: "chromey::conn::raw_ws::parse_errors",
                     msg_len = txt.len(),
                     "Skipping unrecognized WS message {err} preview={preview}",
                 );
             } else {
                 tracing::debug!(
-                    target: "chromiumoxide::conn::raw_ws::parse_errors",
+                    target: "chromey::conn::raw_ws::parse_errors",
                     "Skipping unrecognized binary WS message {err}",
                 );
             }
@@ -1255,13 +1255,13 @@ mod ws_read_loop_tests {
     //! under back-pressure, silent drop of non-data frames, graceful
     //! transport-error propagation, and clean exit on `Close`.
     //!
-    //! The typed events are `chromiumoxide_cdp::cdp::CdpEventMessage` —
+    //! The typed events are `chromey_cdp::cdp::CdpEventMessage` —
     //! the same instantiation the real Handler uses — so these tests
     //! exercise the actual decode path (`serde_json::from_slice`), not
     //! a simplified fake.
     use super::*;
-    use chromiumoxide_cdp::cdp::CdpEventMessage;
-    use chromiumoxide_types::CallId;
+    use chromey_cdp::cdp::CdpEventMessage;
+    use chromey_types::CallId;
     use futures_util::stream;
     use tokio::sync::mpsc;
     use tokio_tungstenite::tungstenite::Message as WsMessage;

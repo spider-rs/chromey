@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::Instant;
 
-use chromiumoxide_cdp::cdp::browser_protocol::target::DetachFromTargetParams;
+use chromey_cdp::cdp::browser_protocol::target::DetachFromTargetParams;
 use std::task::{Context, Poll};
 use tokio::sync::oneshot::Sender;
 
@@ -26,18 +26,18 @@ use crate::handler::viewport::Viewport;
 use crate::handler::{PageInner, REQUEST_TIMEOUT};
 use crate::listeners::{EventListenerRequest, EventListeners};
 use crate::{page::Page, ArcHttpRequest};
-use chromiumoxide_cdp::cdp::browser_protocol::{
+use chromey_cdp::cdp::browser_protocol::{
     browser::BrowserContextId,
     log as cdplog,
     page::{FrameId, GetFrameTreeParams},
     target::{AttachToTargetParams, SessionId, SetAutoAttachParams, TargetId, TargetInfo},
 };
-use chromiumoxide_cdp::cdp::events::CdpEvent;
-use chromiumoxide_cdp::cdp::js_protocol::runtime::{
+use chromey_cdp::cdp::events::CdpEvent;
+use chromey_cdp::cdp::js_protocol::runtime::{
     ExecutionContextId, RunIfWaitingForDebuggerParams,
 };
-use chromiumoxide_cdp::cdp::CdpEventMessage;
-use chromiumoxide_types::{Command, Method, Request, Response};
+use chromey_cdp::cdp::CdpEventMessage;
+use chromey_types::{Command, Method, Request, Response};
 use spider_network_blocker::intercept_manager::NetworkInterceptManager;
 use std::time::Duration;
 
@@ -64,7 +64,7 @@ macro_rules! advance_state {
 
 lazy_static::lazy_static! {
     /// Initial start command params.
-    static ref INIT_COMMANDS_PARAMS: Vec<(chromiumoxide_types::MethodId, serde_json::Value)> = {
+    static ref INIT_COMMANDS_PARAMS: Vec<(chromey_types::MethodId, serde_json::Value)> = {
         if let Ok(attach) = SetAutoAttachParams::builder()
             .flatten(true)
             .auto_attach(true)
@@ -85,7 +85,7 @@ lazy_static::lazy_static! {
 
                 // enable performance on pages.
                 if cfg!(feature = "collect_metrics") {
-                    let enable_performance = chromiumoxide_cdp::cdp::browser_protocol::performance::EnableParams::default();
+                    let enable_performance = chromey_cdp::cdp::browser_protocol::performance::EnableParams::default();
                     cmds.push((
                         enable_performance.identifier(),
                         serde_json::to_value(enable_performance).unwrap_or_default(),
@@ -99,7 +99,7 @@ lazy_static::lazy_static! {
     };
 
     /// Attach to target commands
-    static ref ATTACH_TARGET: (chromiumoxide_types::MethodId, serde_json::Value) = {
+    static ref ATTACH_TARGET: (chromey_types::MethodId, serde_json::Value) = {
         let runtime_cmd = RunIfWaitingForDebuggerParams::default();
 
         (runtime_cmd.identifier(), serde_json::to_value(runtime_cmd).unwrap_or_default())
@@ -531,7 +531,7 @@ impl Target {
             }
             _ => (),
         }
-        chromiumoxide_cdp::consume_event!(match params {
+        chromey_cdp::consume_event!(match params {
            |ev| self.event_listeners.start_send(ev),
            |json| { let _ = self.event_listeners.try_send_custom(&method, json);}
         });

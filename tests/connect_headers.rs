@@ -8,10 +8,10 @@ mod cdp_mock;
 
 use std::time::Duration;
 
-use chromiumoxide::cdp::CdpEventMessage;
-use chromiumoxide::conn::{ConnectHeaderError, ConnectHeaders, Connection};
-use chromiumoxide::handler::HandlerConfig;
-use chromiumoxide::{Browser, BrowserConfig};
+use chromey::cdp::CdpEventMessage;
+use chromey::conn::{ConnectHeaderError, ConnectHeaders, Connection};
+use chromey::handler::HandlerConfig;
+use chromey::{Browser, BrowserConfig};
 use tokio_tungstenite::tungstenite::http::HeaderMap;
 
 const NAME: &str = "x-request-id";

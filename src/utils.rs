@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use chromiumoxide_cdp::cdp::browser_protocol::network::ResourceType;
+use chromey_cdp::cdp::browser_protocol::network::ResourceType;
 
 /// Write to file — uses io_uring when available, falls back to tokio::fs.
 pub(crate) async fn write<P: AsRef<Path> + Unpin, C: AsRef<[u8]>>(

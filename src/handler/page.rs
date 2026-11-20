@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use chromiumoxide_cdp::cdp::browser_protocol::accessibility::{
+use chromey_cdp::cdp::browser_protocol::accessibility::{
     GetFullAxTreeParamsBuilder, GetFullAxTreeReturns, GetPartialAxTreeParamsBuilder,
     GetPartialAxTreeReturns,
 };
@@ -9,28 +9,28 @@ use tokio::sync::mpsc::{channel, Receiver};
 use tokio::sync::oneshot::channel as oneshot_channel;
 use tokio::sync::Notify;
 
-use chromiumoxide_cdp::cdp::browser_protocol::browser::{GetVersionParams, GetVersionReturns};
-use chromiumoxide_cdp::cdp::browser_protocol::dom::{
+use chromey_cdp::cdp::browser_protocol::browser::{GetVersionParams, GetVersionReturns};
+use chromey_cdp::cdp::browser_protocol::dom::{
     BackendNodeId, DiscardSearchResultsParams, GetOuterHtmlParams, GetSearchResultsParams, NodeId,
     PerformSearchParams, QuerySelectorAllParams, QuerySelectorParams, Rgba,
 };
-use chromiumoxide_cdp::cdp::browser_protocol::emulation::{
+use chromey_cdp::cdp::browser_protocol::emulation::{
     ClearDeviceMetricsOverrideParams, SetDefaultBackgroundColorOverrideParams,
     SetDeviceMetricsOverrideParams,
 };
-use chromiumoxide_cdp::cdp::browser_protocol::input::{
+use chromey_cdp::cdp::browser_protocol::input::{
     DispatchDragEventParams, DispatchDragEventType, DispatchKeyEventParams, DispatchKeyEventType,
     DispatchMouseEventParams, DispatchMouseEventType, DragData, MouseButton,
 };
-use chromiumoxide_cdp::cdp::browser_protocol::page::{
+use chromey_cdp::cdp::browser_protocol::page::{
     FrameId, GetLayoutMetricsParams, GetLayoutMetricsReturns, NavigateReturns, PrintToPdfParams,
     SetBypassCspParams, Viewport,
 };
-use chromiumoxide_cdp::cdp::browser_protocol::target::{ActivateTargetParams, SessionId, TargetId};
-use chromiumoxide_cdp::cdp::js_protocol::runtime::{
+use chromey_cdp::cdp::browser_protocol::target::{ActivateTargetParams, SessionId, TargetId};
+use chromey_cdp::cdp::js_protocol::runtime::{
     CallFunctionOnParams, CallFunctionOnReturns, EvaluateParams, ExecutionContextId, RemoteObjectId,
 };
-use chromiumoxide_types::{Command, CommandResponse};
+use chromey_types::{Command, CommandResponse};
 
 use crate::cmd::{to_command_response, CommandMessage};
 use crate::error::{CdpError, Result};
@@ -327,7 +327,7 @@ impl PageInner {
             ..Default::default()
         };
 
-        let chromiumoxide_types::CommandResponse { result, .. } = self.execute(cmd).await?;
+        let chromey_types::CommandResponse { result, .. } = self.execute(cmd).await?;
 
         Ok(result.outer_html)
     }
@@ -831,7 +831,7 @@ impl PageInner {
     /// Fetches the accessibility node and partial accessibility tree for this DOM node, if it exists.
     pub async fn get_partial_ax_tree(
         &self,
-        node_id: Option<chromiumoxide_cdp::cdp::browser_protocol::dom::NodeId>,
+        node_id: Option<chromey_cdp::cdp::browser_protocol::dom::NodeId>,
         backend_node_id: Option<BackendNodeId>,
         object_id: Option<RemoteObjectId>,
         fetch_relatives: Option<bool>,
@@ -1176,7 +1176,7 @@ pub(crate) async fn send_command<T: Command>(
     sender: PageSender,
     session: Option<SessionId>,
     request_timeout: std::time::Duration,
-) -> Result<tokio::sync::oneshot::Receiver<Result<chromiumoxide_types::Response, CdpError>>> {
+) -> Result<tokio::sync::oneshot::Receiver<Result<chromey_types::Response, CdpError>>> {
     let (tx, rx) = oneshot_channel();
     let msg = CommandMessage::with_session(cmd, tx, session)?;
     let target_msg = TargetMessage::Command(msg);
@@ -1218,7 +1218,7 @@ mod page_channel_capacity_tests {
     //! on the mpsc primitives.
     use super::{PageHandle, DEFAULT_PAGE_CHANNEL_CAPACITY};
     use crate::handler::target::TargetMessage;
-    use chromiumoxide_cdp::cdp::browser_protocol::target::{SessionId, TargetId};
+    use chromey_cdp::cdp::browser_protocol::target::{SessionId, TargetId};
     use std::time::Duration;
     use tokio::sync::mpsc::error::TrySendError;
 

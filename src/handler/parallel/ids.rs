@@ -18,7 +18,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use chromiumoxide_types::CallId;
+use chromey_types::CallId;
 use dashmap::DashMap;
 
 /// Slot index. 0 = Router (browser-level commands), 1..=N = SessionTasks.

@@ -1,7 +1,7 @@
 use futures_util::StreamExt;
 
-use chromiumoxide::browser::{Browser, BrowserConfig};
-use chromiumoxide_cdp::cdp::js_protocol::runtime::{
+use chromey::browser::{Browser, BrowserConfig};
+use chromey_cdp::cdp::js_protocol::runtime::{
     CallArgument, CallFunctionOnParams, EvaluateParams,
 };
 

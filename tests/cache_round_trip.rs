@@ -10,14 +10,14 @@
 
 use base64::engine::general_purpose;
 use base64::Engine as _;
-use chromiumoxide::cache::dump_remote::{enqueue, init_remote_dump_worker, DumpJob};
-use chromiumoxide::cache::manager::{
+use chromey::cache::dump_remote::{enqueue, init_remote_dump_worker, DumpJob};
+use chromey::cache::manager::{
     create_cache_key_raw, put_hybrid_cache, site_key_for_target_url,
 };
-use chromiumoxide::cache::remote::{
+use chromey::cache::remote::{
     dump_to_remote_cache_parts, get_cache_site, get_session_cache_item, LOCAL_SESSION_CACHE,
 };
-use chromiumoxide::http::{HttpResponse, HttpVersion};
+use chromey::http::{HttpResponse, HttpVersion};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -598,11 +598,11 @@ async fn test_dump_worker_queue_end_to_end() {
 /// producing a non-stale policy.
 #[tokio::test]
 async fn test_cache_policy_uses_correct_headers() {
-    use chromiumoxide::cache::manager::put_hybrid_cache;
-    use chromiumoxide::cache::remote::{
+    use chromey::cache::manager::put_hybrid_cache;
+    use chromey::cache::remote::{
         dump_to_remote_cache_parts, get_session_cache_item, LOCAL_SESSION_CACHE,
     };
-    use chromiumoxide::http::HttpResponse;
+    use chromey::http::HttpResponse;
 
     let (base_url, store, _handle) = start_mock_server().await;
 

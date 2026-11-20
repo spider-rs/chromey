@@ -10,11 +10,11 @@ mod cdp_mock;
 use std::collections::HashSet;
 use std::time::Duration;
 
-use chromiumoxide::browser::BrowserConfig;
-use chromiumoxide::error::CdpError;
-use chromiumoxide::handler::HandlerConfig;
-use chromiumoxide::Browser;
-use chromiumoxide_cdp::cdp::js_protocol::runtime::EnableParams;
+use chromey::browser::BrowserConfig;
+use chromey::error::CdpError;
+use chromey::handler::HandlerConfig;
+use chromey::Browser;
+use chromey_cdp::cdp::js_protocol::runtime::EnableParams;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 use tokio::time::timeout;
@@ -203,7 +203,7 @@ async fn accepted_commands_keep_their_responses_across_sessions_and_browser() {
 
 #[tokio::test]
 async fn network_event_burst_preserves_events_and_command_responses() {
-    use chromiumoxide_cdp::cdp::browser_protocol::network::EventDataReceived;
+    use chromey_cdp::cdp::browser_protocol::network::EventDataReceived;
     use futures_util::{SinkExt, StreamExt};
     use tokio_tungstenite::tungstenite::Message as WsMessage;
 

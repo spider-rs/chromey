@@ -1,35 +1,35 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use chromiumoxide_cdp::cdp::browser_protocol::accessibility::{
+use chromey_cdp::cdp::browser_protocol::accessibility::{
     GetFullAxTreeReturns, GetPartialAxTreeReturns,
 };
-use chromiumoxide_cdp::cdp::browser_protocol::emulation::{
+use chromey_cdp::cdp::browser_protocol::emulation::{
     MediaFeature, SetDeviceMetricsOverrideParams, SetEmulatedMediaParams,
     SetGeolocationOverrideParams, SetHardwareConcurrencyOverrideParams, SetLocaleOverrideParams,
     SetScriptExecutionDisabledParams, SetTimezoneOverrideParams, UserAgentBrandVersion,
     UserAgentMetadata,
 };
-use chromiumoxide_cdp::cdp::browser_protocol::input::{
+use chromey_cdp::cdp::browser_protocol::input::{
     DispatchDragEventType, DispatchMouseEventParams, DispatchMouseEventType, DragData, MouseButton,
 };
-use chromiumoxide_cdp::cdp::browser_protocol::network::{
+use chromey_cdp::cdp::browser_protocol::network::{
     BlockPattern, Cookie, CookieParam, DeleteCookiesParams, GetCookiesParams, SetBlockedUrLsParams,
     SetCookiesParams, SetExtraHttpHeadersParams, SetUserAgentOverrideParams, TimeSinceEpoch,
 };
-use chromiumoxide_cdp::cdp::browser_protocol::page::*;
-use chromiumoxide_cdp::cdp::browser_protocol::performance::{GetMetricsParams, Metric};
-use chromiumoxide_cdp::cdp::browser_protocol::storage::ClearCookiesParams;
-use chromiumoxide_cdp::cdp::browser_protocol::target::{SessionId, TargetId};
-use chromiumoxide_cdp::cdp::browser_protocol::{dom::*, emulation};
-use chromiumoxide_cdp::cdp::js_protocol;
-use chromiumoxide_cdp::cdp::js_protocol::debugger::GetScriptSourceParams;
-use chromiumoxide_cdp::cdp::js_protocol::runtime::{
+use chromey_cdp::cdp::browser_protocol::page::*;
+use chromey_cdp::cdp::browser_protocol::performance::{GetMetricsParams, Metric};
+use chromey_cdp::cdp::browser_protocol::storage::ClearCookiesParams;
+use chromey_cdp::cdp::browser_protocol::target::{SessionId, TargetId};
+use chromey_cdp::cdp::browser_protocol::{dom::*, emulation};
+use chromey_cdp::cdp::js_protocol;
+use chromey_cdp::cdp::js_protocol::debugger::GetScriptSourceParams;
+use chromey_cdp::cdp::js_protocol::runtime::{
     AddBindingParams, CallFunctionOnParams, EvaluateParams, ExecutionContextId, RemoteObjectType,
     ScriptId,
 };
-use chromiumoxide_cdp::cdp::{browser_protocol, IntoEventKind};
-use chromiumoxide_types::*;
+use chromey_cdp::cdp::{browser_protocol, IntoEventKind};
+use chromey_types::*;
 use futures_util::{stream, StreamExt};
 use spider_fingerprint::configs::{AgentOs, Tier};
 use tokio::sync::mpsc::unbounded_channel;
@@ -531,9 +531,9 @@ impl Page {
     ///
     /// # Example Listen for canceled animations
     /// ```no_run
-    /// # use chromiumoxide::page::Page;
-    /// # use chromiumoxide::error::Result;
-    /// # use chromiumoxide_cdp::cdp::browser_protocol::animation::EventAnimationCanceled;
+    /// # use chromey::page::Page;
+    /// # use chromey::error::Result;
+    /// # use chromey_cdp::cdp::browser_protocol::animation::EventAnimationCanceled;
     /// # use futures_util::StreamExt;
     /// # async fn demo(page: Page) -> Result<()> {
     ///     let mut events = page.event_listener::<EventAnimationCanceled>().await?;
@@ -547,12 +547,12 @@ impl Page {
     /// # Example Liste for a custom event
     ///
     /// ```no_run
-    /// # use chromiumoxide::page::Page;
-    /// # use chromiumoxide::error::Result;
+    /// # use chromey::page::Page;
+    /// # use chromey::error::Result;
     /// # use futures_util::StreamExt;
     /// # use serde::Deserialize;
-    /// # use chromiumoxide::types::{MethodId, MethodType};
-    /// # use chromiumoxide::cdp::CustomEvent;
+    /// # use chromey::types::{MethodId, MethodType};
+    /// # use chromey::cdp::CustomEvent;
     /// # async fn demo(page: Page) -> Result<()> {
     ///     #[derive(Debug, Clone, Eq, PartialEq, Deserialize)]
     ///     struct MyCustomEvent {
@@ -650,7 +650,7 @@ impl Page {
     /// Returns the `Element` on success.
     ///
     /// ```rust,no_run
-    /// # async fn example(page: &chromiumoxide::Page) -> chromiumoxide::error::Result<()> {
+    /// # async fn example(page: &chromey::Page) -> chromey::error::Result<()> {
     /// use std::time::Duration;
     /// let el = page.wait_for_selector("div.loaded", Some(Duration::from_secs(10))).await?;
     /// # Ok(())
@@ -1441,7 +1441,7 @@ impl Page {
             let default_params1 = default_params.clone();
 
             let mut set_emulation_agent_override =
-                chromiumoxide_cdp::cdp::browser_protocol::emulation::SetUserAgentOverrideParams::new(
+                chromey_cdp::cdp::browser_protocol::emulation::SetUserAgentOverrideParams::new(
                     default_params1.user_agent,
                 );
 
@@ -1528,12 +1528,12 @@ impl Page {
     /// Returns the outer HTML of the page.
     pub async fn outer_html(&self) -> Result<String> {
         let root = self.get_document().await?;
-        let p = chromiumoxide_cdp::cdp::browser_protocol::dom::GetOuterHtmlParams {
+        let p = chromey_cdp::cdp::browser_protocol::dom::GetOuterHtmlParams {
             node_id: Some(root.node_id),
             ..Default::default()
         };
 
-        let chromiumoxide_types::CommandResponse { result, .. } = self.execute(p).await?;
+        let chromey_types::CommandResponse { result, .. } = self.execute(p).await?;
 
         Ok(result.outer_html)
     }
@@ -1674,9 +1674,9 @@ impl Page {
     /// Trigger a navigation and wait until the triggered navigation is finished
     ///
     /// ```no_run
-    /// # use chromiumoxide::page::Page;
-    /// # use chromiumoxide::error::Result;
-    /// # use chromiumoxide::layout::Point;
+    /// # use chromey::page::Page;
+    /// # use chromey::error::Result;
+    /// # use chromey::layout::Point;
     /// # async fn demo(page: Page, point: Point) -> Result<()> {
     ///     let html = page.click(point).await?.wait_for_navigation().await?.content();
     ///     # Ok(())
@@ -1688,10 +1688,10 @@ impl Page {
     /// Perform custom click
     ///
     /// ```no_run
-    /// # use chromiumoxide::page::Page;
-    /// # use chromiumoxide::error::Result;
-    /// # use chromiumoxide::layout::Point;
-    /// # use chromiumoxide_cdp::cdp::browser_protocol::input::{DispatchMouseEventParams, MouseButton, DispatchMouseEventType};
+    /// # use chromey::page::Page;
+    /// # use chromey::error::Result;
+    /// # use chromey::layout::Point;
+    /// # use chromey_cdp::cdp::browser_protocol::input::{DispatchMouseEventParams, MouseButton, DispatchMouseEventType};
     /// # async fn demo(page: Page, point: Point) -> Result<()> {
     ///      // double click
     ///      let cmd = DispatchMouseEventParams::builder()
@@ -1806,7 +1806,7 @@ impl Page {
         point: Point,
         color: Rgba,
     ) -> Result<&Self> {
-        use chromiumoxide_cdp::cdp::browser_protocol::overlay::HighlightRectParams;
+        use chromey_cdp::cdp::browser_protocol::overlay::HighlightRectParams;
         let x = point.x.round().clamp(i64::MIN as f64, i64::MAX as f64) as i64;
         let y = point.y.round().clamp(i64::MIN as f64, i64::MAX as f64) as i64;
 
@@ -1866,9 +1866,9 @@ impl Page {
     /// Trigger a navigation and wait until the triggered navigation is finished
     ///
     /// ```no_run
-    /// # use chromiumoxide::page::Page;
-    /// # use chromiumoxide::error::Result;
-    /// # use chromiumoxide::layout::Point;
+    /// # use chromey::page::Page;
+    /// # use chromey::error::Result;
+    /// # use chromey::layout::Point;
     /// # async fn demo(page: Page, point: Point) -> Result<()> {
     ///     let html = page.click(point).await?.wait_for_navigation().await?.content();
     ///     # Ok(())
@@ -1897,9 +1897,9 @@ impl Page {
     /// Trigger a navigation and wait until the triggered navigation is finished
     ///
     /// ```no_run
-    /// # use chromiumoxide::page::Page;
-    /// # use chromiumoxide::error::Result;
-    /// # use chromiumoxide::layout::Point;
+    /// # use chromey::page::Page;
+    /// # use chromey::error::Result;
+    /// # use chromey::layout::Point;
     /// # async fn demo(page: Page, point: Point) -> Result<()> {
     ///     let html = page.right_click(point).await?.wait_for_navigation().await?.content();
     ///     # Ok(())
@@ -1928,9 +1928,9 @@ impl Page {
     /// Trigger a navigation and wait until the triggered navigation is finished
     ///
     /// ```no_run
-    /// # use chromiumoxide::page::Page;
-    /// # use chromiumoxide::error::Result;
-    /// # use chromiumoxide::layout::Point;
+    /// # use chromey::page::Page;
+    /// # use chromey::error::Result;
+    /// # use chromey::layout::Point;
     /// # async fn demo(page: Page, point: Point) -> Result<()> {
     ///     let html = page.middle_click(point).await?.wait_for_navigation().await?.content();
     ///     # Ok(())
@@ -1959,9 +1959,9 @@ impl Page {
     /// Trigger a navigation and wait until the triggered navigation is finished
     ///
     /// ```no_run
-    /// # use chromiumoxide::page::Page;
-    /// # use chromiumoxide::error::Result;
-    /// # use chromiumoxide::layout::Point;
+    /// # use chromey::page::Page;
+    /// # use chromey::error::Result;
+    /// # use chromey::layout::Point;
     /// # async fn demo(page: Page, point: Point) -> Result<()> {
     ///     let html = page.back_click(point).await?.wait_for_navigation().await?.content();
     ///     # Ok(())
@@ -1990,9 +1990,9 @@ impl Page {
     /// Trigger a navigation and wait until the triggered navigation is finished
     ///
     /// ```no_run
-    /// # use chromiumoxide::page::Page;
-    /// # use chromiumoxide::error::Result;
-    /// # use chromiumoxide::layout::Point;
+    /// # use chromey::page::Page;
+    /// # use chromey::error::Result;
+    /// # use chromey::layout::Point;
     /// # async fn demo(page: Page, point: Point) -> Result<()> {
     ///     let html = page.forward_click(point).await?.wait_for_navigation().await?.content();
     ///     # Ok(())
@@ -2021,9 +2021,9 @@ impl Page {
     /// Trigger a navigation and wait until the triggered navigation is finished
     ///
     /// ```no_run
-    /// # use chromiumoxide::page::Page;
-    /// # use chromiumoxide::error::Result;
-    /// # use chromiumoxide::layout::Point;
+    /// # use chromey::page::Page;
+    /// # use chromey::error::Result;
+    /// # use chromey::layout::Point;
     /// # async fn demo(page: Page, point: Point) -> Result<()> {
     ///     let html = page.click_with_modifier(point, 1).await?.wait_for_navigation().await?.content();
     ///     # Ok(())
@@ -2048,9 +2048,9 @@ impl Page {
     /// Trigger a navigation and wait until the triggered navigation is finished
     ///
     /// ```no_run
-    /// # use chromiumoxide::page::Page;
-    /// # use chromiumoxide::error::Result;
-    /// # use chromiumoxide::layout::Point;
+    /// # use chromey::page::Page;
+    /// # use chromey::error::Result;
+    /// # use chromey::layout::Point;
     /// # async fn demo(page: Page, point: Point) -> Result<()> {
     ///     let html = page.right_click_with_modifier(point, 1).await?.wait_for_navigation().await?.content();
     ///     # Ok(())
@@ -2077,9 +2077,9 @@ impl Page {
     /// Trigger a navigation and wait until the triggered navigation is finished
     ///
     /// ```no_run
-    /// # use chromiumoxide::page::Page;
-    /// # use chromiumoxide::error::Result;
-    /// # use chromiumoxide::layout::Point;
+    /// # use chromey::page::Page;
+    /// # use chromey::error::Result;
+    /// # use chromey::layout::Point;
     /// # async fn demo(page: Page, point: Point) -> Result<()> {
     ///     let html = page.middle_click_with_modifier(point, 1).await?.wait_for_navigation().await?.content();
     ///     # Ok(())
@@ -2098,9 +2098,9 @@ impl Page {
     /// # Example
     ///
     /// ```no_run
-    /// # use chromiumoxide::page::Page;
-    /// # use chromiumoxide::error::Result;
-    /// # use chromiumoxide::layout::Point;
+    /// # use chromey::page::Page;
+    /// # use chromey::error::Result;
+    /// # use chromey::layout::Point;
     /// # async fn demo(page: Page, point: Point) -> Result<()> {
     ///     let html = page.type_str("abc").await?.content();
     ///     # Ok(())
@@ -2116,9 +2116,9 @@ impl Page {
     /// # Example
     ///
     /// ```no_run
-    /// # use chromiumoxide::page::Page;
-    /// # use chromiumoxide::error::Result;
-    /// # use chromiumoxide::layout::Point;
+    /// # use chromey::page::Page;
+    /// # use chromey::error::Result;
+    /// # use chromey::layout::Point;
     /// # async fn demo(page: Page, point: Point) -> Result<()> {
     ///     let html = page.type_str_with_modifier("abc", Some(1)).await?.content();
     ///     # Ok(())
@@ -2146,9 +2146,9 @@ impl Page {
     /// Perform a drag from point A to point B using the Shift modifier:
     ///
     /// ```no_run
-    /// # use chromiumoxide::page::Page;
-    /// # use chromiumoxide::error::Result;
-    /// # use chromiumoxide::layout::Point;
+    /// # use chromey::page::Page;
+    /// # use chromey::error::Result;
+    /// # use chromey::layout::Point;
     /// # async fn demo(page: Page, from: Point, to: Point) -> Result<()> {
     ///     page.click_and_drag_with_modifier(from, to, 8).await?;
     ///     Ok(())
@@ -2194,9 +2194,9 @@ impl Page {
     /// Perform a drag from point A to point B using the Shift modifier:
     ///
     /// ```no_run
-    /// # use chromiumoxide::page::Page;
-    /// # use chromiumoxide::error::Result;
-    /// # use chromiumoxide::layout::Point;
+    /// # use chromey::page::Page;
+    /// # use chromey::error::Result;
+    /// # use chromey::layout::Point;
     /// # async fn demo(page: Page, from: Point, to: Point) -> Result<()> {
     ///     page.click_and_drag_with_modifier(from, to, 8).await?;
     ///     Ok(())
@@ -2229,9 +2229,9 @@ impl Page {
     /// Trigger a navigation and wait until the triggered navigation is finished
     ///
     /// ```no_run
-    /// # use chromiumoxide::page::Page;
-    /// # use chromiumoxide::error::Result;
-    /// # use chromiumoxide::layout::Point;
+    /// # use chromey::page::Page;
+    /// # use chromey::error::Result;
+    /// # use chromey::layout::Point;
     /// # async fn demo(page: Page, point: Point) -> Result<()> {
     ///     let html = page.double_click_with_modifier(point, 1).await?.wait_for_navigation().await?.content();
     ///     # Ok(())
@@ -2315,9 +2315,9 @@ impl Page {
     /// # Example
     ///
     /// ```no_run
-    /// # use chromiumoxide::page::Page;
-    /// # use chromiumoxide::error::Result;
-    /// # use chromiumoxide::cdp::browser_protocol::page::FrameId;
+    /// # use chromey::page::Page;
+    /// # use chromey::error::Result;
+    /// # use chromey::cdp::browser_protocol::page::FrameId;
     /// # async fn demo_get_full_ax_tree(page: Page, depth: Option<i64>, frame_id: Option<FrameId>) -> Result<()> {
     ///     let tree = page.get_full_ax_tree(None, None).await;
     ///     # Ok(())
@@ -2336,19 +2336,19 @@ impl Page {
     /// # Example
     ///
     /// ```no_run
-    /// # use chromiumoxide::page::Page;
-    /// # use chromiumoxide::error::Result;
-    /// # use chromiumoxide::cdp::browser_protocol::dom::BackendNodeId;
-    /// # async fn demo_get_partial_ax_tree(page: Page, node_id: Option<chromiumoxide_cdp::cdp::browser_protocol::dom::NodeId>, backend_node_id: Option<BackendNodeId>, object_id: Option<chromiumoxide_cdp::cdp::js_protocol::runtime::RemoteObjectId>, fetch_relatives: Option<bool>,) -> Result<()> {
+    /// # use chromey::page::Page;
+    /// # use chromey::error::Result;
+    /// # use chromey::cdp::browser_protocol::dom::BackendNodeId;
+    /// # async fn demo_get_partial_ax_tree(page: Page, node_id: Option<chromey_cdp::cdp::browser_protocol::dom::NodeId>, backend_node_id: Option<BackendNodeId>, object_id: Option<chromey_cdp::cdp::js_protocol::runtime::RemoteObjectId>, fetch_relatives: Option<bool>,) -> Result<()> {
     ///     let tree = page.get_partial_ax_tree(node_id, backend_node_id, object_id, fetch_relatives).await;
     ///     # Ok(())
     /// # }
     /// ```
     pub async fn get_partial_ax_tree(
         &self,
-        node_id: Option<chromiumoxide_cdp::cdp::browser_protocol::dom::NodeId>,
+        node_id: Option<chromey_cdp::cdp::browser_protocol::dom::NodeId>,
         backend_node_id: Option<BackendNodeId>,
-        object_id: Option<chromiumoxide_cdp::cdp::js_protocol::runtime::RemoteObjectId>,
+        object_id: Option<chromey_cdp::cdp::js_protocol::runtime::RemoteObjectId>,
         fetch_relatives: Option<bool>,
     ) -> Result<GetPartialAxTreeReturns> {
         self.inner
@@ -2391,9 +2391,9 @@ impl Page {
     /// # Example save a png file of a website
     ///
     /// ```no_run
-    /// # use chromiumoxide::page::{Page, ScreenshotParams};
-    /// # use chromiumoxide::error::Result;
-    /// # use chromiumoxide_cdp::cdp::browser_protocol::page::CaptureScreenshotFormat;
+    /// # use chromey::page::{Page, ScreenshotParams};
+    /// # use chromey::error::Result;
+    /// # use chromey_cdp::cdp::browser_protocol::page::CaptureScreenshotFormat;
     /// # async fn demo(page: Page) -> Result<()> {
     ///         page.goto("http://example.com")
     ///             .await?
@@ -2453,14 +2453,14 @@ impl Page {
     pub async fn enable_virtual_time_with_budget(
         &self,
         budget_ms: f64,
-        policy: Option<chromiumoxide_cdp::cdp::browser_protocol::emulation::VirtualTimePolicy>,
+        policy: Option<chromey_cdp::cdp::browser_protocol::emulation::VirtualTimePolicy>,
         max_virtual_time_task_starvation_count: Option<i64>,
         initial_virtual_time: Option<TimeSinceEpoch>,
     ) -> Result<&Self> {
         let params =
-            chromiumoxide_cdp::cdp::browser_protocol::emulation::SetVirtualTimePolicyParams {
+            chromey_cdp::cdp::browser_protocol::emulation::SetVirtualTimePolicyParams {
                 policy: policy.unwrap_or(
-                    chromiumoxide_cdp::cdp::browser_protocol::emulation::VirtualTimePolicy::Advance,
+                    chromey_cdp::cdp::browser_protocol::emulation::VirtualTimePolicy::Advance,
                 ),
                 budget: Some(budget_ms),
                 max_virtual_time_task_starvation_count: max_virtual_time_task_starvation_count
@@ -2554,9 +2554,9 @@ impl Page {
     ///
     /// To reload ignoring cache run:
     /// ```no_run
-    /// # use chromiumoxide::page::Page;
-    /// # use chromiumoxide::error::Result;
-    /// # use chromiumoxide_cdp::cdp::browser_protocol::page::ReloadParams;
+    /// # use chromey::page::Page;
+    /// # use chromey::error::Result;
+    /// # use chromey_cdp::cdp::browser_protocol::page::ReloadParams;
     /// # async fn demo(page: Page) -> Result<()> {
     ///     page.execute(ReloadParams::builder().ignore_cache(true).build()).await?;
     ///     page.wait_for_navigation().await?;
@@ -2572,9 +2572,9 @@ impl Page {
     ///
     /// To reload ignoring cache run:
     /// ```no_run
-    /// # use chromiumoxide::page::Page;
-    /// # use chromiumoxide::error::Result;
-    /// # use chromiumoxide_cdp::cdp::browser_protocol::page::ReloadParams;
+    /// # use chromey::page::Page;
+    /// # use chromey::error::Result;
+    /// # use chromey_cdp::cdp::browser_protocol::page::ReloadParams;
     /// # async fn demo(page: Page) -> Result<()> {
     ///     page.execute(ReloadParams::builder().ignore_cache(true).build()).await?;
     ///     # Ok(())
@@ -2899,9 +2899,9 @@ impl Page {
     ///
     /// # Example
     /// ```no_run
-    /// # use chromiumoxide::page::Page;
-    /// # use chromiumoxide::error::Result;
-    /// # use chromiumoxide_cdp::cdp::browser_protocol::network::CookieParam;
+    /// # use chromey::page::Page;
+    /// # use chromey::error::Result;
+    /// # use chromey_cdp::cdp::browser_protocol::network::CookieParam;
     /// # async fn demo(page: Page) -> Result<()> {
     ///     page.set_cookie(CookieParam::new("Cookie-name", "Cookie-value")).await?;
     ///     # Ok(())
@@ -3145,8 +3145,8 @@ impl Page {
     /// This will take the arguments `(1,2)` and will call the function
     ///
     /// ```no_run
-    /// # use chromiumoxide::page::Page;
-    /// # use chromiumoxide::error::Result;
+    /// # use chromey::page::Page;
+    /// # use chromey::error::Result;
     /// # async fn demo(page: Page) -> Result<()> {
     ///     let sum: usize = page
     ///         .evaluate_expression("((a,b) => {return a + b;})(1,2)")
@@ -3190,9 +3190,9 @@ impl Page {
     /// option
     ///
     /// ```no_run
-    /// # use chromiumoxide::page::Page;
-    /// # use chromiumoxide::error::Result;
-    /// # use chromiumoxide_cdp::cdp::js_protocol::runtime::{EvaluateParams, RemoteObjectType};
+    /// # use chromey::page::Page;
+    /// # use chromey::error::Result;
+    /// # use chromey_cdp::cdp::js_protocol::runtime::{EvaluateParams, RemoteObjectType};
     /// # async fn demo(page: Page) -> Result<()> {
     ///     let eval = EvaluateParams::builder().expression("() => {return 42;}");
     ///     // this will fail because the `EvaluationResult` returned by the browser will be
@@ -3215,8 +3215,8 @@ impl Page {
     ///
     /// # Example Evaluate basic expression
     /// ```no_run
-    /// # use chromiumoxide::page::Page;
-    /// # use chromiumoxide::error::Result;
+    /// # use chromey::page::Page;
+    /// # use chromey::error::Result;
     /// # async fn demo(page: Page) -> Result<()> {
     ///     let sum:usize = page.evaluate("1 + 2").await?.into_value()?;
     ///     assert_eq!(sum, 3);
@@ -3255,8 +3255,8 @@ impl Page {
     /// # Example Evaluate a promise
     /// This will wait until the promise resolves and then returns the result.
     /// ```no_run
-    /// # use chromiumoxide::page::Page;
-    /// # use chromiumoxide::error::Result;
+    /// # use chromey::page::Page;
+    /// # use chromey::error::Result;
     /// # async fn demo(page: Page) -> Result<()> {
     ///     let sum:usize = page.evaluate_function("() => Promise.resolve(1 + 2)").await?.into_value()?;
     ///     assert_eq!(sum, 3);
@@ -3266,8 +3266,8 @@ impl Page {
     ///
     /// # Example Evaluate an async function
     /// ```no_run
-    /// # use chromiumoxide::page::Page;
-    /// # use chromiumoxide::error::Result;
+    /// # use chromey::page::Page;
+    /// # use chromey::error::Result;
     /// # async fn demo(page: Page) -> Result<()> {
     ///     let val:usize = page.evaluate_function("async function() {return 42;}").await?.into_value()?;
     ///     assert_eq!(val, 42);
@@ -3277,9 +3277,9 @@ impl Page {
     /// # Example Construct a function call
     ///
     /// ```no_run
-    /// # use chromiumoxide::page::Page;
-    /// # use chromiumoxide::error::Result;
-    /// # use chromiumoxide_cdp::cdp::js_protocol::runtime::{CallFunctionOnParams, CallArgument};
+    /// # use chromey::page::Page;
+    /// # use chromey::error::Result;
+    /// # use chromey_cdp::cdp::js_protocol::runtime::{CallFunctionOnParams, CallArgument};
     /// # async fn demo(page: Page) -> Result<()> {
     ///     let call = CallFunctionOnParams::builder()
     ///            .function_declaration(
@@ -3483,11 +3483,11 @@ impl Page {
     ///
     /// # Example
     /// ```no_run
-    /// # use chromiumoxide::page::Page;
-    /// # use chromiumoxide::error::Result;
+    /// # use chromey::page::Page;
+    /// # use chromey::error::Result;
     /// # async fn demo(page: Page) -> Result<()> {
     ///     page.set_content("<body>
-    ///  <h1>This was set via chromiumoxide</h1>
+    ///  <h1>This was set via chromey</h1>
     ///  </body>").await?;
     ///     # Ok(())
     /// # }

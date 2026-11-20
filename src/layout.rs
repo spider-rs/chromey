@@ -1,10 +1,10 @@
 //! Code based on [rust-headless-chrome](https://github.com/atroche/rust-headless-chrome/blob/master/src/browser/tab/element/box_model.rs)
 
-use chromiumoxide_cdp::cdp::browser_protocol::dom::Quad;
-use chromiumoxide_cdp::cdp::browser_protocol::input::{
+use chromey_cdp::cdp::browser_protocol::dom::Quad;
+use chromey_cdp::cdp::browser_protocol::input::{
     DispatchMouseEventParams, DispatchMouseEventType, MouseButton,
 };
-use chromiumoxide_cdp::cdp::browser_protocol::page::Viewport;
+use chromey_cdp::cdp::browser_protocol::page::Viewport;
 
 #[derive(Debug, Default, Copy, Clone, PartialEq)]
 pub struct Point {
